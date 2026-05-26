@@ -3,4 +3,3 @@ pandas>=2.0
 plotly>=5.18
 vaderSentiment>=3.3.2
 gensim==4.3.2
-nltk>=3.8

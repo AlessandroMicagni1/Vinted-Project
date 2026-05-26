@@ -7,10 +7,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import nltk
 from gensim import corpora
 from gensim.models import LdaModel
-from nltk.tokenize import RegexpTokenizer
 
 DEFAULT_CSV = Path(__file__).with_name("vinted_googleplay_clean.csv")
 
@@ -259,21 +257,9 @@ def weekly_summary(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner="Running LDA topic modelling (first run may take ~30 s)...")
 def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
     """Train gensim LDA on df texts and assign a dominant topic to each review."""
-    try:
-        from nltk.corpus import stopwords as nltk_sw
-        italian_sw = set(nltk_sw.words("italian"))
-    except LookupError:
-        nltk.download("stopwords", quiet=True)
-        from nltk.corpus import stopwords as nltk_sw
-        italian_sw = set(nltk_sw.words("italian"))
-
-    all_sw = italian_sw | ITALIAN_STOPWORDS
-    tok    = RegexpTokenizer(
-        r"[a-zA-ZàáâãäåæçèéêëìíîïòóôõöùúûüÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ]{3,}"
-    )
-
+    _tok = re.compile(r"[a-zA-ZàáâãäåæçèéêëìíîïòóôõöùúûüÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ]{3,}")
     texts = [
-        [t for t in tok.tokenize(str(x).lower()) if t not in all_sw]
+        [t for t in _tok.findall(str(x).lower()) if t not in ITALIAN_STOPWORDS]
         for x in df["text"]
     ]
 
