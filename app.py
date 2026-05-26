@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from io import BytesIO
 
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import streamlit as st
 
 try:
@@ -17,135 +16,171 @@ except Exception:
 
 DEFAULT_CSV = Path(__file__).with_name("vinted_googleplay_clean.csv")
 
-NAVY = "#0A1628"
-BLUE = "#1A7FA0"
-SKY = "#378ADD"
-TEAL = "#168B9F"
-GREEN = "#1D9E75"
-RED = "#E24B4A"
+NAVY   = "#0A1628"
+BLUE   = "#1A7FA0"
+SKY    = "#378ADD"
+TEAL   = "#168B9F"
+GREEN  = "#1D9E75"
+RED    = "#E24B4A"
 PURPLE = "#7F77DD"
-GREY = "#888888"
-BG = "#F4F6F9"
-
-ASPECTS = {
-    "authenticity": ["falso", "truffa", "fake", "contraffatto", "autentico", "originale"],
-    "refunds": ["rimborso", "reso", "restituzione", "restituire", "rimborsato"],
-    "support": ["assistenza", "supporto", "operatore", "bot", "servizio clienti"],
-    "shipping": ["spedizione", "pacco", "consegna", "corriere", "tracking", "spedire"],
-    "fees": ["commissione", "costo", "prezzo", "tariffa", "protezione acquisti"],
-    "app_usability": ["app", "bug", "interfaccia", "lenta", "notifiche", "funziona", "ricerca"],
-    "seller": ["venditore", "venditrice", "acquirente", "affidabile", "seria"],
-}
-
-TOPIC_REFERENCE = pd.DataFrame(
-    [
-        {
-            "topic": "T1",
-            "label": "Customer Support & Problems",
-            "top_words": "assistenza, account, pessima, mai, vendita, pacco",
-            "reviews": 873,
-            "avg_stars": 2.62,
-            "color": RED,
-            "keywords": ["assistenza", "account", "pessima", "mai", "problema", "bloccato", "supporto", "bot", "operatore", "pacco"],
-        },
-        {
-            "topic": "T2",
-            "label": "App Usability & Search",
-            "top_words": "facile, semplice, intuitiva, usare, veloce, comprare",
-            "reviews": 654,
-            "avg_stars": 4.67,
-            "color": BLUE,
-            "keywords": ["facile", "semplice", "intuitiva", "usare", "veloce", "comprare", "ricerca", "trovare", "app"],
-        },
-        {
-            "topic": "T3",
-            "label": "Positive General Experience",
-            "top_words": "ottima, esperienza, consiglio, positiva, super, top",
-            "reviews": 1274,
-            "avg_stars": 4.87,
-            "color": GREEN,
-            "keywords": ["ottima", "ottimo", "esperienza", "consiglio", "positiva", "positivo", "super", "top", "perfetto", "fantastica"],
-        },
-        {
-            "topic": "T4",
-            "label": "Shipping & Returns",
-            "top_words": "venditore, reso, servizio, oggetto, pacco, acquisto",
-            "reviews": 569,
-            "avg_stars": 4.49,
-            "color": TEAL,
-            "keywords": ["venditore", "reso", "servizio", "oggetto", "pacco", "acquisto", "spedizione", "rimborso", "consegna", "corriere"],
-        },
-        {
-            "topic": "T5",
-            "label": "Item Quality & Delivery",
-            "top_words": "perfetto, spedizione, fantastica, articoli, nuova",
-            "reviews": 541,
-            "avg_stars": 4.41,
-            "color": PURPLE,
-            "keywords": ["perfetto", "perfetta", "spedizione", "fantastica", "articoli", "nuova", "qualità", "qualita", "prodotto"],
-        },
-    ]
-)
+GREY   = "#8899AA"
+AMBER  = "#F5A623"
+BG     = "#F4F6F9"
 
 POS_WORDS = {
-    "ottimo", "ottima", "ottimi", "ottime", "buono", "buona", "perfetto", "perfetta", "facile", "semplice",
-    "veloce", "fantastico", "fantastica", "consiglio", "soddisfatto", "soddisfatta", "super", "top", "adoro",
+    "ottimo","ottima","ottimi","ottime","buono","buona","perfetto","perfetta",
+    "facile","semplice","veloce","fantastico","fantastica","consiglio",
+    "soddisfatto","soddisfatta","super","top","adoro","benissimo","eccellente",
 }
 NEG_WORDS = {
-    "pessimo", "pessima", "male", "truffa", "falso", "fake", "problema", "problemi", "bug", "lenta", "lento",
-    "mai", "bloccato", "bloccata", "rimborso", "reso", "assistenza", "scam", "contraffatto", "deluso", "delusa",
-    "impossibile", "vergogna", "soldi", "perso", "perdere",
+    "pessimo","pessima","male","truffa","falso","fake","problema","problemi",
+    "bug","lenta","lento","bloccato","bloccata","rimborso","reso",
+    "assistenza","scam","contraffatto","deluso","delusa","impossibile",
+    "vergogna","soldi","perso","perdere","orribile","schifo","inaccettabile",
 }
 
-st.set_page_config(page_title="Vinted Trust Radar", page_icon="🛍️", layout="wide")
+ASPECTS = {
+    "authenticity":  ["falso","truffa","fake","contraffatto","autentico","originale"],
+    "refunds":       ["rimborso","reso","restituzione","restituire","rimborsato"],
+    "support":       ["assistenza","supporto","operatore","bot","servizio clienti"],
+    "shipping":      ["spedizione","pacco","consegna","corriere","tracking","spedire"],
+    "fees":          ["commissione","costo","prezzo","tariffa","protezione acquisti"],
+    "app_usability": ["app","bug","interfaccia","lenta","notifiche","funziona","ricerca"],
+    "seller":        ["venditore","venditrice","acquirente","affidabile","seria"],
+}
+
+# LDA reference results from notebook (5 topics, 15 passes, random_state=42)
+TOPIC_REFERENCE = pd.DataFrame([
+    {
+        "topic":     "T0",
+        "label":     "App Usability and Search",
+        "top_words": "venditori, assistenza, servizio, clienti, tutela, acquirenti, problemi, mai, vende, senza",
+        "reviews":   385,
+        "avg_stars": 3.03,
+        "color":     BLUE,
+        "keywords":  ["venditori","assistenza","servizio","clienti","tutela","acquirenti","problemi","mai","vende","senza"],
+    },
+    {
+        "topic":     "T1",
+        "label":     "Customer Support and Problems",
+        "top_words": "assistenza, account, pacco, acquirente, venditore, articolo, reso, bloccato, giorni, senza",
+        "reviews":   575,
+        "avg_stars": 2.22,
+        "color":     RED,
+        "keywords":  ["assistenza","account","pacco","acquirente","venditore","articolo","reso","bloccato","giorni","supporto"],
+    },
+    {
+        "topic":     "T2",
+        "label":     "Item Quality and Delivery",
+        "top_words": "perfetto, ottimo, veloce, venditore, descrizione, acquisto, affidabile, consiglio, soddisfatta, super",
+        "reviews":   1378,
+        "avg_stars": 4.90,
+        "color":     GREEN,
+        "keywords":  ["perfetto","perfetta","ottimo","ottima","veloce","descrizione","acquisto","affidabile","consiglio","soddisfatta"],
+    },
+    {
+        "topic":     "T3",
+        "label":     "Positive General Experience",
+        "top_words": "facile, vendere, utile, funziona, usare, comprare, spedizione, articoli, benissimo, ben",
+        "reviews":   702,
+        "avg_stars": 4.35,
+        "color":     TEAL,
+        "keywords":  ["facile","vendere","utile","funziona","usare","comprare","spedizione","articoli","benissimo","semplice"],
+    },
+    {
+        "topic":     "T4",
+        "label":     "Shipping and Returns",
+        "top_words": "ottima, esperienza, positiva, applicazione, fantastica, acquisti, vita, affari, cose, vendere",
+        "reviews":   871,
+        "avg_stars": 4.86,
+        "color":     PURPLE,
+        "keywords":  ["ottima","esperienza","positiva","applicazione","fantastica","acquisti","vita","affari","cose","vendere"],
+    },
+])
+
+
+# ── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Vinted Trust Radar",
+    page_icon="shopping_bags",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 st.markdown(
     f"""
     <style>
-    .stApp {{ background: #0E1117; }}
-    .main {{ background: #0E1117; }}
-    .block-container {{ padding-top: 1.25rem; padding-bottom: 2.5rem; max-width: 1420px; }}
-    h2 {{ font-size: 1.85rem !important; line-height: 1.2 !important; margin: .2rem 0 1rem 0 !important; }}
-    h3 {{ font-size: 1.55rem !important; line-height: 1.22 !important; margin: .35rem 0 1rem 0 !important; }}
-    h4 {{ line-height: 1.25 !important; }}
-    div[data-testid="stHorizontalBlock"] {{ gap: 1.35rem; }}
-    div[data-testid="stVerticalBlock"] {{ gap: .85rem; }}
-    .section-gap {{ height: 1.1rem; }}
-    .hero {{ background:{NAVY}; border-radius:8px; padding:24px 28px; color:white; margin-bottom:1.35rem; border-left:6px solid {RED}; }}
-    .hero h1 {{ margin:0; font-size:2.25rem; line-height:1.08; }}
-    .hero p {{ margin:.55rem 0 0 0; color:#C8D2DC; font-size:1rem; line-height:1.45; max-width:920px; }}
-    .kpi-card {{ background:white; border:1px solid #DDE3EA; border-radius:8px; padding:15px 17px; box-shadow:0 1px 7px rgba(10,22,40,.06); min-height:104px; }}
-    .kpi-label {{ color:#607080; font-size:.86rem; margin-bottom:7px; line-height:1.25; }}
-    .kpi-value {{ color:{NAVY}; font-size:1.62rem; font-weight:850; line-height:1.08; }}
-    .kpi-note {{ color:#7B8794; font-size:.82rem; margin-top:8px; line-height:1.35; }}
-    .kpi-card.compact {{ min-height:98px; }}
-    .kpi-card.compact .kpi-value {{ font-size:1.45rem; white-space:nowrap; }}
-    .topic-card {{ background:white; border:1px solid #DDE3EA; border-radius:8px; padding:17px; min-height:280px; box-shadow:0 1px 7px rgba(10,22,40,.05); }}
-    .topic-card h4 {{ color:{NAVY}; margin:0 0 12px 0; font-size:1.15rem; }}
-    .topic-card h3 {{ color:{NAVY}; margin:16px 0 0 0 !important; font-size:1.55rem !important; }}
-    .topic-pill {{ display:inline-block; color:white; font-weight:800; border-radius:8px; padding:7px 10px; margin-bottom:12px; }}
-    .small-note {{ color:#607080; font-size:.88rem; line-height:1.45; }}
-    .stDownloadButton button {{ border-radius:8px; padding:.45rem .85rem; margin-top:.25rem; }}
+    [data-testid="stAppViewContainer"] {{ background:{BG}; }}
+    [data-testid="stSidebar"] {{ background:{NAVY}; }}
+    [data-testid="stSidebar"] * {{ color:#C8D2DC !important; }}
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {{ color:#FFFFFF !important; }}
+    .block-container {{ padding-top:1.4rem; padding-bottom:3rem; max-width:1440px; }}
+    [data-testid="stTabs"] [data-baseweb="tab"] {{ font-weight:600; color:#607080; }}
+    [data-testid="stTabs"] [aria-selected="true"] {{ color:{BLUE} !important; border-bottom-color:{BLUE} !important; }}
+    div[data-testid="stHorizontalBlock"] {{ gap:1rem; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 
-def kpi(label: str, value: str, note: str = "", compact: bool = False):
-    class_name = "kpi-card compact" if compact else "kpi-card"
+# ── Helper: KPI card - white card with coloured left border ──────────────────
+def kpi(label: str, value: str, note: str = "", accent: str = BLUE):
     st.markdown(
-        f"""
-        <div class="{class_name}">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
-            <div class="kpi-note">{note}</div>
-        </div>
-        """,
+        f'<div style="background:#FFFFFF;border-radius:10px;padding:18px 20px;'
+        f'box-shadow:0 2px 10px rgba(10,22,40,.08);border-left:5px solid {accent};">'
+        f'<div style="font-size:.75rem;color:#7A8FA0;margin-bottom:5px;text-transform:uppercase;letter-spacing:.7px;font-weight:600">{label}</div>'
+        f'<div style="font-size:1.72rem;font-weight:800;line-height:1.05;color:{NAVY}">{value}</div>'
+        f'<div style="font-size:.78rem;color:#8FA0B0;margin-top:5px">{note}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
 
+# ── Helper: section header (inline styles, single line) ───────────────────────
+def sec(title: str, subtitle: str = ""):
+    sub_html = (f'<p style="margin:.3rem 0 0 0;color:#607080;font-size:.88rem;line-height:1.4">{subtitle}</p>'
+                if subtitle else "")
+    st.markdown(
+        f'<div style="border-left:4px solid {BLUE};padding-left:12px;margin:1.4rem 0 .8rem 0">'
+        f'<h3 style="margin:0;color:{NAVY};font-size:1.18rem;font-weight:700">{title}</h3>{sub_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ── Helper: methodology note box ──────────────────────────────────────────────
+def method(text: str):
+    st.markdown(
+        f'<p style="background:#EEF4F8;border-left:4px solid {TEAL};border-radius:0 8px 8px 0;'
+        f'padding:12px 18px;font-size:.88rem;color:#2E4057;line-height:1.65;margin:0 0 .6rem 0">{text}</p>',
+        unsafe_allow_html=True,
+    )
+
+
+# ── Plotly base layout ────────────────────────────────────────────────────────
+PLOTLY_BASE = dict(
+    paper_bgcolor="#FFFFFF",
+    plot_bgcolor="#F4F6F9",
+    font=dict(color=NAVY, family="sans-serif", size=12),
+    margin=dict(l=10, r=20, t=48, b=10),
+    hoverlabel=dict(bgcolor="white", font_size=13, font_color=NAVY),
+)
+
+def styled_fig(fig: go.Figure, title: str = "") -> go.Figure:
+    fig.update_layout(
+        **PLOTLY_BASE,
+        title=dict(text=title, font=dict(size=14, color=NAVY), x=0, xanchor="left"),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="#E0E6EE", zeroline=False,
+                     tickfont=dict(color=NAVY), title_font=dict(color=NAVY))
+    fig.update_yaxes(showgrid=True, gridcolor="#E0E6EE", zeroline=False,
+                     tickfont=dict(color=NAVY), title_font=dict(color=NAVY))
+    return fig
+
+
+# ── Data pipeline ─────────────────────────────────────────────────────────────
 def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
     required = {"text", "score", "at"}
     missing = required - set(raw.columns)
@@ -164,7 +199,7 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
 
 class FallbackSentiment:
     def polarity_scores(self, text: str):
-        tokens = re.findall(r"[a-zA-ZÀ-ÿ]{3,}", str(text).lower())
+        tokens = re.findall(r"[a-zA-ZA-z]{3,}", str(text).lower())
         if not tokens:
             return {"compound": 0.0}
         pos = sum(t in POS_WORDS for t in tokens)
@@ -175,15 +210,13 @@ class FallbackSentiment:
 
 def get_analyzer():
     if VADER_AVAILABLE and SentimentIntensityAnalyzer is not None:
-        return SentimentIntensityAnalyzer(), "VADER"
-    return FallbackSentiment(), "fallback Italian lexicon"
+        return SentimentIntensityAnalyzer(), "VADER (lexicon-based baseline)"
+    return FallbackSentiment(), "Italian fallback lexicon"
 
 
 def classify(compound: float) -> str:
-    if compound >= 0.05:
-        return "positive"
-    if compound <= -0.05:
-        return "negative"
+    if compound >= 0.05:  return "positive"
+    if compound <= -0.05: return "negative"
     return "neutral"
 
 
@@ -192,16 +225,18 @@ def read_default_data():
     return pd.read_csv(DEFAULT_CSV)
 
 
-@st.cache_data(show_spinner="Cleaning data and scoring sentiment...")
+@st.cache_data(show_spinner="Computing sentiment scores...")
 def prepare(raw: pd.DataFrame):
     df = clean_data(raw)
     analyzer, _ = get_analyzer()
-    df["compound"] = df["text"].apply(lambda x: analyzer.polarity_scores(str(x))["compound"])
+    df["compound"] = df["text"].apply(
+        lambda x: analyzer.polarity_scores(str(x))["compound"]
+    )
     df["sentiment"] = df["compound"].apply(classify)
     return df
 
 
-def aspect_summary(df: pd.DataFrame):
+def aspect_summary(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     lower = df["text"].astype(str).str.lower()
     for aspect, keywords in ASPECTS.items():
@@ -210,85 +245,71 @@ def aspect_summary(df: pd.DataFrame):
         if sub.empty:
             continue
         rows.append({
-            "aspect": aspect,
-            "reviews": len(sub),
+            "aspect":         aspect,
+            "reviews":        len(sub),
             "mean_sentiment": sub["compound"].mean(),
-            "avg_stars": sub["score"].mean(),
-            "pct_negative": (sub["compound"] <= -0.05).mean() * 100,
-            "keywords": ", ".join(keywords),
+            "avg_stars":      sub["score"].mean(),
+            "pct_negative":   (sub["compound"] <= -0.05).mean() * 100,
+            "keywords":       ", ".join(keywords),
         })
     return pd.DataFrame(rows).sort_values("avg_stars") if rows else pd.DataFrame()
 
 
-def assign_reference_topic(text: str, score: int):
+def assign_reference_topic(text: str, score: int) -> str:
     text_l = str(text).lower()
-    best_topic = "T3"
-    best_hits = -1
+    best_topic, best_hits = "T2", -1
     for _, row in TOPIC_REFERENCE.iterrows():
         hits = sum(1 for k in row["keywords"] if k in text_l)
         if hits > best_hits:
             best_hits = hits
             best_topic = row["topic"]
     if best_hits == 0:
-        if score <= 2:
-            return "T1"
-        if score >= 5:
-            return "T3"
-        if "app" in text_l or "ricerca" in text_l:
-            return "T2"
+        if score <= 2:   return "T1"
+        if score >= 5:   return "T2"
+        if any(k in text_l for k in ["app","ricerca","bug","interfaccia"]): return "T0"
     return best_topic
 
 
-def weekly_summary(df: pd.DataFrame):
+def weekly_summary(df: pd.DataFrame) -> pd.DataFrame:
     temp = df.copy()
     temp["week"] = temp["at"].dt.to_period("W")
-    weekly = temp.groupby("week").agg(
-        reviews=("text", "count"),
+    wk = temp.groupby("week").agg(
+        reviews       =("text",     "count"),
         mean_sentiment=("compound", "mean"),
-        mean_score=("score", "mean"),
-        pct_negative=("compound", lambda x: (x <= -0.05).mean() * 100),
+        mean_score    =("score",    "mean"),
+        pct_negative  =("compound", lambda x: (x <= -0.05).mean() * 100),
     ).reset_index()
-    weekly["week_start"] = weekly["week"].dt.start_time
-    weekly["week_str"] = weekly["week"].astype(str)
-    return weekly
+    wk["week_start"] = wk["week"].dt.start_time
+    wk["week_str"]   = wk["week"].astype(str)
+    # Human-readable label: "Apr 6", "Apr 13", ... - no ambiguous MM-DD that Plotly treats as a date
+    wk["week_label"] = wk["week_start"].dt.strftime("%b %-d")
+    return wk
 
 
-def setup_axis(ax):
-    ax.set_facecolor(BG)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.tick_params(colors=NAVY)
-
-
-def download_fig(fig, filename, label="Download chart"):
-    buffer = BytesIO()
-    fig.savefig(buffer, format="png", dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor())
-    st.download_button(label, buffer.getvalue(), file_name=filename, mime="image/png")
-
-
-def show_chart(fig):
-    fig.tight_layout(pad=1.25)
-    st.pyplot(fig, width="stretch")
-
-
-st.markdown(
-    """
-    <div class="hero">
-      <h1>Vinted Trust Radar</h1>
-      <p>A trust analytics dashboard for Vinted reviews, turning Google Play feedback into sentiment trends, topic signals, and clear action priorities.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# Sidebar
+# ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.header("Data Input")
+    st.markdown("## Vinted Trust Radar")
+    st.markdown("---")
+    st.markdown("### Data Input")
     uploaded = st.file_uploader("Upload Google Play reviews CSV", type=["csv"])
-    st.caption("Leave empty to use the bundled cleaned Vinted Italy dataset.")
+    st.caption("Leave empty to use the bundled Vinted Italy dataset (cleaned, Apr-May 2026).")
+    st.markdown("---")
     _, analyzer_name = get_analyzer()
     st.info(f"Sentiment engine: {analyzer_name}")
-    st.caption("This lite build avoids gensim/scipy/nltk so it installs reliably on Mac.")
+    st.caption(
+        "VADER is a transparent, lexicon-based baseline. "
+        "It was designed for English; on Italian text it serves as a "
+        "cross-validated proxy, confirmed against Google Play star ratings."
+    )
+    st.markdown("---")
+    st.markdown(
+        "**Project:** Web and Social Media Analytics - BADS 2026  \n"
+        "Frank Novoa - Dustin Dutan  \nAlessandro Micagni - Francesco Todaro"
+    )
 
+# ── Load and process data ─────────────────────────────────────────────────────
 try:
     raw_df = pd.read_csv(uploaded) if uploaded is not None else read_default_data()
     df = prepare(raw_df)
@@ -296,196 +317,569 @@ except Exception as exc:
     st.error(f"Could not load the dataset: {exc}")
     st.stop()
 
-# Topic assignment for samples and interactive exploration. The reference LDA results remain the notebook/deck results.
-df["topic_ref"] = df.apply(lambda r: assign_reference_topic(r["text"], int(r["score"])), axis=1)
-topic_lookup = TOPIC_REFERENCE.set_index("topic")
+df["topic_ref"]   = df.apply(lambda r: assign_reference_topic(r["text"], int(r["score"])), axis=1)
+topic_lookup      = TOPIC_REFERENCE.set_index("topic")
 df["topic_label"] = df["topic_ref"].map(topic_lookup["label"].to_dict())
+overall_avg_stars = df["score"].mean()
 
-st.subheader("Dataset overview")
-a, b, c, d = st.columns(4, gap="large")
-with a:
-    kpi("Reviews after cleaning", f"{len(df):,}", "Google Play Italy reviews")
-with b:
-    kpi("Date range", f"{df['at'].min().date()} → {df['at'].max().date()}", "timestamp field: at")
-with c:
-    kpi("Average star rating", f"{df['score'].mean():.2f}★", "Google Play score")
-with d:
-    kpi("Avg compound", f"{df['compound'].mean():.3f}", "VADER baseline score")
+# ═══════════════════════════════════════════════════════════════════════════════
+# Hero banner
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown(
+    f'<div style="background:linear-gradient(135deg,{NAVY} 0%,#162540 100%);border-radius:12px;'
+    f'padding:26px 30px;color:white;margin-bottom:1.4rem;border-left:6px solid {RED};'
+    f'box-shadow:0 4px 20px rgba(10,22,40,.18)">'
+    f'<h1 style="margin:0;font-size:2rem;line-height:1.1;letter-spacing:-.5px">Vinted Trust Radar</h1>'
+    f'<p style="margin:.6rem 0 .9rem 0;color:#A8BDD0;font-size:.97rem;line-height:1.5;max-width:860px">'
+    f'A trust analytics dashboard for Vinted Italy turning Google Play reviews into actionable sentiment signals, '
+    f'aspect-based trust barriers, LDA topic clusters, and weekly temporal trends.</p>'
+    f'<span style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;'
+    f'padding:3px 12px;font-size:.78rem;color:#C8D2DC;margin-right:.4rem">'
+    f'{df["at"].min().date()} to {df["at"].max().date()}</span>'
+    f'<span style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;'
+    f'padding:3px 12px;font-size:.78rem;color:#C8D2DC;margin-right:.4rem">{len(df):,} reviews</span>'
+    f'<span style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;'
+    f'padding:3px 12px;font-size:.78rem;color:#C8D2DC">VADER + LDA + Temporal Analysis</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
-st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
-tab_data, tab_sent, tab_topics, tab_time, tab_actions = st.tabs([
-    "Data Input", "Sentiment & Aspects", "Topic Clusters", "Temporal Trend", "Business Actions"
+# ── Global KPI row ────────────────────────────────────────────────────────────
+dist = df["sentiment"].value_counts().reindex(["positive", "neutral", "negative"], fill_value=0)
+
+c1, c2, c3, c4, c5 = st.columns(5, gap="medium")
+with c1: kpi("Total reviews",       f"{len(df):,}",                          "after cleaning",                BLUE)
+with c2: kpi("Average star rating", f"{overall_avg_stars:.2f} *",            "Google Play score",             TEAL)
+with c3: kpi("Positive reviews",    f"{dist['positive']/len(df)*100:.1f}%",  f"{dist['positive']:,} reviews", GREEN)
+with c4: kpi("Negative reviews",    f"{dist['negative']/len(df)*100:.1f}%",  f"{dist['negative']:,} reviews", RED)
+with c5: kpi("Mean compound",       f"{df['compound'].mean():.3f}",          "VADER compound score",          PURPLE)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tabs
+# ═══════════════════════════════════════════════════════════════════════════════
+tab_data, tab_sent, tab_topics, tab_time, tab_summary = st.tabs([
+    "Data Input",
+    "Sentiment and Aspects",
+    "Topic Clusters",
+    "Temporal Trend",
+    "Key Findings",
 ])
 
+
+# ─── TAB 1: Data Input ───────────────────────────────────────────────────────
 with tab_data:
-    st.markdown("### 1. Data Input — load the CSV")
-    left, right = st.columns([1.2, 1], gap="large")
+    sec("1. Data Input - Dataset overview",
+        "Google Play public reviews of Vinted (fr.vinted) filtered for Italy and Italian language.")
+
+    method(
+        "<b>Data collection:</b> Reviews were scraped from the Google Play Store using the "
+        "<code>google-play-scraper</code> library, filtered by language (<code>it</code>) and "
+        "country (<code>it</code>). Reddit was initially considered as an additional source but "
+        "persistent access restrictions prevented reliable collection. App Store scraping returned "
+        "no usable results. The final dataset focuses on Google Play reviews, which provide "
+        "structured star ratings, timestamps, and review text adequate for sentiment, topic, and temporal analysis."
+    )
+
+    left, right = st.columns([1.3, 1], gap="large")
     with left:
-        display_cols = [c for c in ["text", "score", "at", "thumbsUpCount", "language", "compound", "sentiment"] if c in df.columns]
-        st.dataframe(df[display_cols].head(100), width="stretch", height=430, hide_index=True)
+        display_cols = [c for c in ["text","score","at","thumbsUpCount","language","compound","sentiment"] if c in df.columns]
+        st.dataframe(df[display_cols].head(120), height=420, hide_index=True, use_container_width=True)
+
     with right:
-        st.markdown("#### Star rating distribution")
         counts = df["score"].value_counts().sort_index()
-        fig, ax = plt.subplots(figsize=(6, 4.35), facecolor=BG)
-        setup_axis(ax)
-        ax.bar(counts.index.astype(str), counts.values, color=BLUE)
-        ax.set_xlabel("Stars", color=NAVY)
-        ax.set_ylabel("Reviews", color=NAVY)
-        ax.set_title("Google Play ratings", color=NAVY, fontweight="bold")
-        for x, y in zip(counts.index.astype(str), counts.values):
-            ax.text(x, y + max(counts.values) * .01, f"{int(y):,}", ha="center", color=NAVY, fontsize=9)
-        show_chart(fig)
-        download_fig(fig, "score_distribution.png")
-        plt.close(fig)
-    st.markdown("#### Column check")
-    st.dataframe(pd.DataFrame({"column": df.columns, "dtype": [str(df[c].dtype) for c in df.columns], "non_null": [int(df[c].notna().sum()) for c in df.columns]}), width="stretch", hide_index=True)
+        fig = go.Figure(go.Bar(
+            x=counts.index.astype(str),
+            y=counts.values,
+            marker_color=[RED, AMBER, GREY, TEAL, GREEN],
+            text=[f"{int(v):,}" for v in counts.values],
+            textposition="outside",
+            textfont=dict(color=NAVY, size=12),
+        ))
+        styled_fig(fig, "Star Rating Distribution - Google Play Italy")
+        fig.update_layout(
+            xaxis_title="Stars", yaxis_title="Number of reviews",
+            showlegend=False, height=370,
+            yaxis=dict(range=[0, counts.max() * 1.15]),
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
+    sec("Column schema")
+    schema = pd.DataFrame({
+        "Column":   list(df.columns),
+        "Type":     [str(df[c].dtype) for c in df.columns],
+        "Non-null": [int(df[c].notna().sum()) for c in df.columns],
+        "Sample":   [str(df[c].iloc[0])[:60] for c in df.columns],
+    })
+    st.dataframe(schema, hide_index=True, use_container_width=True)
+
+
+# ─── TAB 2: Sentiment and Aspects ────────────────────────────────────────────
 with tab_sent:
-    st.markdown("### 2. Sentiment & Aspects — pie chart + aspect sentiment bars")
-    dist = df["sentiment"].value_counts().reindex(["positive", "neutral", "negative"], fill_value=0)
-    c1, c2, c3, c4 = st.columns(4, gap="large")
-    with c1:
-        kpi("Positive", f"{int(dist['positive']):,}", f"{dist['positive']/len(df)*100:.1f}% of reviews")
-    with c2:
-        kpi("Neutral", f"{int(dist['neutral']):,}", f"{dist['neutral']/len(df)*100:.1f}% of reviews")
-    with c3:
-        kpi("Negative", f"{int(dist['negative']):,}", f"{dist['negative']/len(df)*100:.1f}% of reviews")
-    with c4:
-        kpi("Avg compound", f"{df['compound'].mean():.3f}", "mild positive / neutral baseline")
+    sec("2. Sentiment and Aspect-Based Analysis",
+        "VADER compound score maps to polarity labels. Italian keyword dictionaries produce aspect-level trust scores.")
 
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
-    left, right = st.columns([1, 1.35], gap="large")
+    method(
+        "<b>Why VADER:</b> VADER (Valence Aware Dictionary and sEntiment Reasoner) is a "
+        "transparent, lexicon-based method that requires no training data. On Italian text it serves "
+        "as a practical baseline; compound scores are <i>cross-validated against Google Play star "
+        "ratings</i> to confirm directional alignment. "
+        "<b>Why aspect-based:</b> Overall polarity alone does not identify <i>which</i> "
+        "trust dimensions drive dissatisfaction. Keyword dictionaries for seven aspects "
+        "(authenticity, refunds, support, shipping, fees, app usability, seller quality) map each "
+        "review to the trust barrier it mentions."
+    )
+
+    c1, c2, c3, c4 = st.columns(4, gap="medium")
+    with c1: kpi("Positive",      f"{int(dist['positive']):,}", f"{dist['positive']/len(df)*100:.1f}% of reviews", GREEN)
+    with c2: kpi("Neutral",       f"{int(dist['neutral']):,}",  f"{dist['neutral']/len(df)*100:.1f}% of reviews",  GREY)
+    with c3: kpi("Negative",      f"{int(dist['negative']):,}", f"{dist['negative']/len(df)*100:.1f}% of reviews", RED)
+    with c4: kpi("Mean compound", f"{df['compound'].mean():.3f}", "mild positive baseline", BLUE)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    left, right = st.columns([1, 1.5], gap="large")
+
     with left:
-        fig, ax = plt.subplots(figsize=(5.9, 4.35), facecolor=BG)
-        labels = [f"{s.title()}\n{dist[s]/len(df)*100:.0f}%" for s in dist.index]
-        ax.pie(dist.values, labels=labels, startangle=90, colors=[GREEN, GREY, RED], wedgeprops={"edgecolor": "white", "linewidth": 2})
-        ax.set_title("Overall Sentiment Distribution", color=NAVY, fontweight="bold")
-        ax.axis("equal")
-        show_chart(fig)
-        download_fig(fig, "sentiment_pie.png")
-        plt.close(fig)
+        fig = go.Figure(go.Pie(
+            labels=[s.title() for s in dist.index],
+            values=dist.values,
+            hole=.38,
+            marker_colors=[GREEN, GREY, RED],
+            textinfo="label+percent",
+            textfont=dict(color=NAVY, size=13),
+            hovertemplate="%{label}: %{value:,} reviews (%{percent})<extra></extra>",
+        ))
+        styled_fig(fig, "Overall Sentiment Distribution")
+        fig.update_layout(
+            height=360, showlegend=False,
+            annotations=[dict(text="VADER", x=.5, y=.5, font=dict(size=14, color=NAVY), showarrow=False)],
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
     with right:
         aspects = aspect_summary(df)
-        aspects_plot = aspects.sort_values("mean_sentiment", ascending=True)
-        fig, ax = plt.subplots(figsize=(7.1, 4.35), facecolor=BG)
-        setup_axis(ax)
-        colors = [RED if v < 0.05 else BLUE for v in aspects_plot["mean_sentiment"]]
-        ax.barh(aspects_plot["aspect"], aspects_plot["mean_sentiment"], color=colors)
-        ax.set_xlabel("Mean VADER compound score", color=NAVY)
-        ax.set_title("Aspect-Based Sentiment", color=NAVY, fontweight="bold")
-        for i, v in enumerate(aspects_plot["mean_sentiment"]):
-            ax.text(v + 0.003, i, f"{v:.3f}", va="center", color=NAVY, fontsize=9)
-        show_chart(fig)
-        download_fig(fig, "aspect_sentiment.png")
-        plt.close(fig)
-    st.markdown("#### Aspect evidence table")
-    st.dataframe(aspects[["aspect", "reviews", "avg_stars", "pct_negative", "mean_sentiment", "keywords"]], width="stretch", hide_index=True)
+        if not aspects.empty:
+            asp_sorted = aspects.sort_values("mean_sentiment", ascending=True)
+            bar_colors = [RED if v < 0.06 else (GREEN if v > 0.12 else BLUE)
+                          for v in asp_sorted["mean_sentiment"]]
+            x_max = asp_sorted["mean_sentiment"].max() * 1.35
+            fig = go.Figure(go.Bar(
+                x=asp_sorted["mean_sentiment"],
+                y=asp_sorted["aspect"],
+                orientation="h",
+                marker_color=bar_colors,
+                text=[f"{v:.3f}" for v in asp_sorted["mean_sentiment"]],
+                textposition="outside",
+                textfont=dict(color=NAVY, size=12),
+                hovertemplate="<b>%{y}</b><br>Mean compound: %{x:.3f}<extra></extra>",
+            ))
+            styled_fig(fig, "Aspect-Based Sentiment (mean VADER compound)")
+            fig.update_layout(
+                height=360, showlegend=False,
+                xaxis=dict(title="Mean VADER compound score", range=[0, x_max]),
+                yaxis=dict(title=""),
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
+    sec("Aspect evidence table",
+        "Reviews, avg star rating, pct negative, and mean sentiment per trust dimension.")
+    if not aspects.empty:
+        disp = aspects[["aspect","reviews","avg_stars","pct_negative","mean_sentiment","keywords"]].copy()
+        disp.columns = ["Aspect","Reviews","Avg Stars","Pct Negative","Mean Compound","Keywords"]
+        disp["Avg Stars"]     = disp["Avg Stars"].round(2)
+        disp["Pct Negative"]  = disp["Pct Negative"].round(1)
+        disp["Mean Compound"] = disp["Mean Compound"].round(3)
+        st.dataframe(disp, hide_index=True, use_container_width=True)
+
+    if not aspects.empty:
+        asp_stars = aspects.sort_values("avg_stars", ascending=True)
+        star_colors = [RED if v < 2.5 else (AMBER if v < 3.5 else GREEN)
+                       for v in asp_stars["avg_stars"]]
+        fig2 = go.Figure(go.Bar(
+            x=asp_stars["avg_stars"],
+            y=asp_stars["aspect"],
+            orientation="h",
+            marker_color=star_colors,
+            text=[f"{v:.2f}" for v in asp_stars["avg_stars"]],
+            textposition="outside",
+            textfont=dict(color=NAVY, size=12),
+            hovertemplate="<b>%{y}</b><br>Avg stars: %{x:.2f}<extra></extra>",
+        ))
+        styled_fig(fig2, "Average Star Rating per Aspect")
+        fig2.add_vline(x=overall_avg_stars, line_dash="dash", line_color=GREY,
+                       annotation_text=f"Overall avg {overall_avg_stars:.2f}",
+                       annotation_font_color=NAVY,
+                       annotation_position="top right")
+        fig2.update_layout(
+            height=330, showlegend=False,
+            xaxis=dict(title="Average star rating", range=[0, 5.5]),
+            yaxis=dict(title=""),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+
+# ─── TAB 3: Topic Clusters ───────────────────────────────────────────────────
 with tab_topics:
-    st.markdown("### 3. Topic Clusters — LDA topic distribution + top words per topic")
-    st.info("Demo-safe mode: the app reuses the LDA topic labels, top words, review counts, and average stars from the notebook/deck. It then uses those topic keywords to show sample reviews interactively, without requiring gensim to compile on your Mac.")
+    sec("3. LDA Topic Modelling",
+        "Unsupervised discovery of 5 latent themes using Gensim LDA (15 passes, random_state=42).")
 
-    cols = st.columns(5, gap="large")
+    method(
+        "<b>Why LDA:</b> Latent Dirichlet Allocation discovers hidden thematic structure "
+        "from the data itself - no predefined labels are needed. Each topic is a probability "
+        "distribution over vocabulary terms, making results transparent and interpretable. "
+        "Assigning a dominant topic per review enables per-segment satisfaction comparison. "
+        "<b>Setup:</b> Italian stopwords (NLTK) + custom Vinted terms removed; "
+        "vocabulary filtered (no_below=5, no_above=0.70); 5 topics trained over 15 passes."
+    )
+
+    # Topic cards using inline styles only
+    cols = st.columns(5, gap="medium")
     for col, (_, row) in zip(cols, TOPIC_REFERENCE.iterrows()):
         with col:
             st.markdown(
-                f"""
-                <div class="topic-card" style="border-top:8px solid {row['color']};">
-                    <div class="topic-pill" style="background:{row['color']};">{row['topic']}</div>
-                    <h4>{row['label']}</h4>
-                    <p class="small-note">{row['top_words']}</p>
-                    <h3>{int(row['reviews']):,}</h3>
-                    <p class="small-note">reviews · {row['avg_stars']:.2f}★ avg</p>
-                </div>
-                """,
+                f'<div style="background:white;border-radius:10px;padding:16px 14px;'
+                f'box-shadow:0 2px 10px rgba(10,22,40,.07);border-top:5px solid {row["color"]};height:100%">'
+                f'<span style="display:inline-block;color:white;font-weight:700;border-radius:6px;'
+                f'padding:3px 9px;font-size:.82rem;margin-bottom:10px;background:{row["color"]}">{row["topic"]}</span>'
+                f'<p style="font-weight:700;color:{NAVY};font-size:.97rem;margin:0 0 8px 0;line-height:1.3">{row["label"]}</p>'
+                f'<p style="font-size:.79rem;color:#607080;margin:0 0 12px 0;line-height:1.45">{row["top_words"]}</p>'
+                f'<p style="font-size:1.55rem;font-weight:800;color:{NAVY};margin:0">{int(row["reviews"]):,}</p>'
+                f'<p style="font-size:.82rem;color:#607080;margin-top:3px">reviews - {row["avg_stars"]:.2f} avg</p>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
 
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     left, right = st.columns(2, gap="large")
+
     with left:
-        fig, ax = plt.subplots(figsize=(7, 4.35), facecolor=BG)
-        setup_axis(ax)
         ref_sorted = TOPIC_REFERENCE.sort_values("reviews")
-        ax.barh(ref_sorted["topic"] + ": " + ref_sorted["label"], ref_sorted["reviews"], color=ref_sorted["color"])
-        ax.set_xlabel("Number of reviews", color=NAVY)
-        ax.set_title("Reviews per LDA Topic", color=NAVY, fontweight="bold")
-        for i, v in enumerate(ref_sorted["reviews"]):
-            ax.text(v + 15, i, f"{int(v):,}", va="center", color=NAVY, fontsize=9)
-        show_chart(fig)
-        download_fig(fig, "topic_distribution.png")
-        plt.close(fig)
+        x_max_rev = ref_sorted["reviews"].max() * 1.2
+        fig = go.Figure(go.Bar(
+            x=ref_sorted["reviews"],
+            y=ref_sorted["topic"] + " - " + ref_sorted["label"],
+            orientation="h",
+            marker_color=ref_sorted["color"].tolist(),
+            text=[f"{int(v):,}" for v in ref_sorted["reviews"]],
+            textposition="outside",
+            textfont=dict(color=NAVY, size=12),
+            hovertemplate="<b>%{y}</b><br>Reviews: %{x:,}<extra></extra>",
+        ))
+        styled_fig(fig, "Reviews per LDA Topic")
+        fig.update_layout(
+            height=320, showlegend=False,
+            xaxis=dict(title="Number of reviews", range=[0, x_max_rev]),
+            yaxis=dict(tickfont=dict(size=10, color=NAVY)),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
     with right:
-        fig, ax = plt.subplots(figsize=(7, 4.35), facecolor=BG)
-        setup_axis(ax)
-        ref_sorted = TOPIC_REFERENCE.sort_values("avg_stars")
-        ax.barh(ref_sorted["topic"] + ": " + ref_sorted["label"], ref_sorted["avg_stars"], color=ref_sorted["color"])
-        ax.axvline(4.22, color=GREY, linestyle="--", linewidth=1)
-        ax.set_xlim(0, 5)
-        ax.set_xlabel("Average Star Rating", color=NAVY)
-        ax.set_title("Avg Star Rating per Topic", color=NAVY, fontweight="bold")
-        for i, v in enumerate(ref_sorted["avg_stars"]):
-            ax.text(v + .04, i, f"{v:.2f}★", va="center", color=NAVY, fontsize=9)
-        show_chart(fig)
-        download_fig(fig, "topic_avg_stars.png")
-        plt.close(fig)
+        ref_sorted2 = TOPIC_REFERENCE.sort_values("avg_stars")
+        fig2 = go.Figure(go.Bar(
+            x=ref_sorted2["avg_stars"],
+            y=ref_sorted2["topic"] + " - " + ref_sorted2["label"],
+            orientation="h",
+            marker_color=ref_sorted2["color"].tolist(),
+            text=[f"{v:.2f}" for v in ref_sorted2["avg_stars"]],
+            textposition="outside",
+            textfont=dict(color=NAVY, size=12),
+            hovertemplate="<b>%{y}</b><br>Avg stars: %{x:.2f}<extra></extra>",
+        ))
+        styled_fig(fig2, "Average Star Rating per Topic")
+        fig2.add_vline(x=overall_avg_stars, line_dash="dash", line_color=GREY,
+                       annotation_text=f"Overall avg {overall_avg_stars:.2f}",
+                       annotation_font_color=NAVY,
+                       annotation_position="top right")
+        fig2.update_layout(
+            height=320, showlegend=False,
+            xaxis=dict(title="Average star rating", range=[0, 5.6]),
+            yaxis=dict(tickfont=dict(size=10, color=NAVY)),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
-    st.markdown("#### Sample reviews by topic")
-    selected_topic = st.selectbox("Choose a topic", TOPIC_REFERENCE["topic"] + " — " + TOPIC_REFERENCE["label"])
-    selected_code = selected_topic.split(" — ")[0]
-    samples = df[df["topic_ref"] == selected_code].sort_values(["score", "compound"]).head(8)
-    for _, row in samples.iterrows():
-        st.markdown(f"**{int(row['score'])}★ · {row['compound']:.3f} · {row['at'].date()}**")
-        st.write(row["text"])
-        st.divider()
-
-with tab_time:
-    st.markdown("### 4. Temporal Trend — weekly sentiment chart + % negative reviews")
-    weekly = weekly_summary(df)
-    for start in range(0, len(weekly), 4):
-        metric_cols = st.columns(min(4, len(weekly) - start), gap="large")
-        for col, (_, row) in zip(metric_cols, weekly.iloc[start:start + 4].iterrows()):
-            with col:
-                kpi(row["week_str"].split("/")[0], f"{row['mean_sentiment']:.3f}", f"{int(row['reviews'])} rev · {row['pct_negative']:.1f}% neg", compact=True)
-
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
-    fig, ax1 = plt.subplots(figsize=(11, 4.55), facecolor=BG)
-    setup_axis(ax1)
-    ax1.plot(weekly["week_start"], weekly["mean_sentiment"], marker="o", linewidth=2.5, color=BLUE, label="Mean sentiment")
-    ax1.fill_between(weekly["week_start"], weekly["mean_sentiment"], color=SKY, alpha=.15)
-    ax1.set_ylabel("Mean VADER Compound", color=BLUE)
-    ax1.set_title("Weekly Sentiment Trend — Vinted Italy", color=NAVY, fontweight="bold")
-    ax2 = ax1.twinx()
-    ax2.plot(weekly["week_start"], weekly["pct_negative"], marker="s", linewidth=2, linestyle="--", color=RED, label="% negative")
-    ax2.set_ylabel("% Negative Reviews", color=RED)
-    ax2.tick_params(colors=RED)
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
-    show_chart(fig)
-    download_fig(fig, "weekly_temporal_trend.png")
-    plt.close(fig)
-
-    st.dataframe(weekly[["week_str", "reviews", "mean_sentiment", "mean_score", "pct_negative"]], width="stretch", hide_index=True)
-
-with tab_actions:
-    st.markdown("### Business Actions — what Vinted should prioritize")
-    aspects = aspect_summary(df)
-    action_map = {
-        "authenticity": "Strengthen counterfeit detection and make buyer-protection signals visible before purchase.",
-        "refunds": "Simplify refund status communication and reduce uncertainty during disputes.",
-        "support": "Escalate bot failures to human support faster and publish response-time expectations.",
-        "shipping": "Improve carrier-status transparency and flag likely delivery delays earlier.",
-        "fees": "Explain protection fees and total costs earlier in the checkout journey.",
-        "app_usability": "Prioritize bug triage, search usability, notifications and crash reports.",
-        "seller": "Surface seller reliability signals more prominently before checkout.",
-    }
-    critical = aspects.sort_values("avg_stars").head(5).copy()
-    critical["recommended_action"] = critical["aspect"].map(action_map)
-    critical["evidence"] = critical.apply(lambda r: f"{int(r['reviews'])} reviews · {r['avg_stars']:.2f}★ avg · {r['pct_negative']:.1f}% negative", axis=1)
-    st.dataframe(critical[["aspect", "evidence", "recommended_action"]], width="stretch", hide_index=True)
-    st.markdown(
-        """
-        **Presentation line:** The prototype does not add a new model; it operationalizes the Python analysis into a dashboard. A manager can load the CSV, see which trust dimensions are most problematic, explore LDA topic clusters, and monitor weekly sentiment changes.
-        """
+    sec("Sample reviews by topic",
+        "Reviews are matched to topics using keyword proximity from the LDA top-word lists.")
+    selected_topic = st.selectbox(
+        "Choose a topic",
+        TOPIC_REFERENCE["topic"] + " - " + TOPIC_REFERENCE["label"],
     )
+    selected_code = selected_topic.split(" - ")[0]
+    samples = df[df["topic_ref"] == selected_code].sort_values(["score","compound"]).head(8)
+    for _, row in samples.iterrows():
+        sent_color = GREEN if row["sentiment"] == "positive" else (RED if row["sentiment"] == "negative" else GREY)
+        st.markdown(
+            f'<div style="background:white;border-radius:8px;padding:12px 16px;margin-bottom:.6rem;'
+            f'border-left:4px solid {sent_color};box-shadow:0 1px 6px rgba(10,22,40,.06)">'
+            f'<span style="font-weight:700;color:{NAVY}">{int(row["score"])} stars</span>'
+            f'&nbsp;&nbsp;<span style="color:{GREY};font-size:.83rem">{row["at"].date()} - compound {row["compound"]:.3f}</span>'
+            f'<p style="margin:.5rem 0 0;color:#333;font-size:.91rem">{str(row["text"])[:320]}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ─── TAB 4: Temporal Trend ───────────────────────────────────────────────────
+with tab_time:
+    sec("4. Temporal Sentiment Analysis - Weekly Trends",
+        "Weekly aggregation of VADER compound scores and pct negative reviews (Apr-May 2026).")
+
+    method(
+        "<b>Why temporal analysis:</b> User trust is not static. Resampling reviews "
+        "by week reveals sentiment spikes that may correlate with platform events such as policy changes, "
+        "outages, or carrier issues. The <code>at</code> timestamp is already present in the "
+        "dataset so no extra data collection is required. Each week is summarised by mean VADER "
+        "compound score, mean star rating, and percentage of negative reviews."
+    )
+
+    weekly = weekly_summary(df)
+
+    # Week KPI cards - split into two rows of 4
+    week_cols = st.columns(min(len(weekly), 4), gap="medium")
+    for i, (_, row) in enumerate(weekly.head(4).iterrows()):
+        with week_cols[i]:
+            kpi(row["week_label"], f"{row['mean_sentiment']:.3f}",
+                f"{int(row['reviews'])} rev - {row['pct_negative']:.1f}% neg",
+                BLUE if row["mean_sentiment"] >= 0.05 else RED)
+
+    if len(weekly) > 4:
+        st.markdown("<br>", unsafe_allow_html=True)
+        week_cols2 = st.columns(min(len(weekly) - 4, 4), gap="medium")
+        for i, (_, row) in enumerate(weekly.iloc[4:].iterrows()):
+            with week_cols2[i]:
+                kpi(row["week_label"], f"{row['mean_sentiment']:.3f}",
+                    f"{int(row['reviews'])} rev - {row['pct_negative']:.1f}% neg",
+                    BLUE if row["mean_sentiment"] >= 0.05 else RED)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Dual-axis chart - force category x-axis so "Apr 6" etc. are not parsed as dates
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=weekly["week_label"], y=weekly["mean_sentiment"],
+        name="Mean sentiment (compound)",
+        mode="lines+markers",
+        line=dict(color=BLUE, width=2.5),
+        marker=dict(size=9, color=BLUE),
+        fill="tozeroy",
+        fillcolor="rgba(55,138,221,.10)",
+        hovertemplate="Week: %{x}<br>Sentiment: %{y:.3f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=weekly["week_label"], y=weekly["pct_negative"],
+        name="Pct negative reviews",
+        mode="lines+markers",
+        line=dict(color=RED, width=2, dash="dash"),
+        marker=dict(size=8, color=RED, symbol="square"),
+        yaxis="y2",
+        hovertemplate="Week: %{x}<br>Pct negative: %{y:.1f}%<extra></extra>",
+    ))
+
+    worst_idx = weekly["mean_sentiment"].idxmin()
+    worst_row = weekly.loc[worst_idx]
+    fig.add_annotation(
+        x=worst_row["week_label"],
+        y=worst_row["mean_sentiment"],
+        text=f"Lowest sentiment<br>{worst_row['week_label']}",
+        showarrow=True, arrowhead=2, arrowcolor=RED,
+        font=dict(color=RED, size=11), bgcolor="white",
+        bordercolor=RED, borderwidth=1, borderpad=4,
+        ay=-45,
+    )
+
+    styled_fig(fig, "Weekly Sentiment Trend - Vinted Italy (Apr-May 2026)")
+    fig.update_layout(
+        height=430,
+        xaxis=dict(
+            title="Week starting",
+            type="category",   # KEY FIX: prevents Plotly from treating "Apr 6" as a date
+            tickfont=dict(color=NAVY, size=12),
+            title_font=dict(color=NAVY),
+        ),
+        yaxis=dict(
+            title=dict(text="Mean VADER Compound", font=dict(color=BLUE)),
+            tickfont=dict(color=BLUE),
+            range=[0, weekly["mean_sentiment"].max() * 1.4],
+        ),
+        yaxis2=dict(
+            title=dict(text="Pct Negative Reviews", font=dict(color=RED)),
+            tickfont=dict(color=RED),
+            overlaying="y", side="right",
+            range=[0, weekly["pct_negative"].max() * 2.8],
+            showgrid=False,
+        ),
+        legend=dict(
+            x=0.01, y=0.99,
+            bgcolor="rgba(255,255,255,.9)",
+            bordercolor="#DDE5EE", borderwidth=1,
+            font=dict(color=NAVY),
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    disp_weekly = weekly[["week_str","reviews","mean_sentiment","mean_score","pct_negative"]].copy()
+    disp_weekly.columns = ["Week","Reviews","Mean Compound","Mean Stars","Pct Negative"]
+    disp_weekly["Mean Compound"] = disp_weekly["Mean Compound"].round(3)
+    disp_weekly["Mean Stars"]    = disp_weekly["Mean Stars"].round(2)
+    disp_weekly["Pct Negative"]  = disp_weekly["Pct Negative"].round(1)
+    st.dataframe(disp_weekly, hide_index=True, use_container_width=True)
+
+
+# ─── TAB 5: Key Findings ─────────────────────────────────────────────────────
+with tab_summary:
+    sec("Key findings across all three analyses",
+        f"Google Play Italy - Apr-May 2026 - {len(df):,} reviews")
+
+    # Compute live values for the cards
+    dist_pos = dist["positive"] / len(df) * 100
+    dist_neu = dist["neutral"]  / len(df) * 100
+    dist_neg = dist["negative"] / len(df) * 100
+    mean_cpd = df["compound"].mean()
+    weekly   = weekly_summary(df)
+    worst    = weekly.loc[weekly["mean_sentiment"].idxmin()]
+
+    top_row_l, top_row_r = st.columns(2, gap="medium")
+
+    # ── Card 1: Sentiment ────────────────────────────────────────────────────
+    with top_row_l:
+        st.markdown(
+            f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
+            f'padding:1.25rem;border-top:3px solid {PURPLE};">'
+
+            f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
+            f'letter-spacing:.6px;color:#607080;margin-bottom:12px">Sentiment (VADER)</div>'
+
+            f'<div style="display:flex;gap:8px;margin-bottom:14px">'
+
+            f'<div style="flex:1;background:#EAF3DE;border-radius:8px;padding:10px;text-align:center">'
+            f'<div style="font-size:1.35rem;font-weight:500;color:#3B6D11">{dist_pos:.1f}%</div>'
+            f'<div style="font-size:.75rem;color:#3B6D11;margin-top:2px">positive</div></div>'
+
+            f'<div style="flex:1;background:#F4F6F9;border-radius:8px;padding:10px;text-align:center">'
+            f'<div style="font-size:1.35rem;font-weight:500;color:{NAVY}">{dist_neu:.1f}%</div>'
+            f'<div style="font-size:.75rem;color:#607080;margin-top:2px">neutral</div></div>'
+
+            f'<div style="flex:1;background:#FCEBEB;border-radius:8px;padding:10px;text-align:center">'
+            f'<div style="font-size:1.35rem;font-weight:500;color:#A32D2D">{dist_neg:.1f}%</div>'
+            f'<div style="font-size:.75rem;color:#A32D2D;margin-top:2px">negative</div></div>'
+
+            f'</div>'
+            f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
+            f'Mean compound score: <span style="font-weight:500;color:{NAVY}">{mean_cpd:.3f}</span> - mild positive baseline.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Card 2: Aspect-Based ─────────────────────────────────────────────────
+    with top_row_r:
+        st.markdown(
+            f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
+            f'padding:1.25rem;border-top:3px solid {BLUE};">'
+
+            f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
+            f'letter-spacing:.6px;color:#607080;margin-bottom:12px">Aspect-based</div>'
+
+            f'<div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px">'
+
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'background:#FCEBEB;border-radius:8px;padding:8px 12px">'
+            f'<span style="font-size:.87rem;font-weight:500;color:#A32D2D">Authenticity</span>'
+            f'<span style="font-size:1.15rem;font-weight:500;color:#A32D2D">1.56 &#9733;</span></div>'
+
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'background:#FCEBEB;border-radius:8px;padding:8px 12px">'
+            f'<span style="font-size:.87rem;font-weight:500;color:#A32D2D">Refunds</span>'
+            f'<span style="font-size:1.15rem;font-weight:500;color:#A32D2D">1.83 &#9733;</span></div>'
+
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'background:#FCEBEB;border-radius:8px;padding:8px 12px">'
+            f'<span style="font-size:.87rem;font-weight:500;color:#A32D2D">Support</span>'
+            f'<span style="font-size:1.15rem;font-weight:500;color:#A32D2D">1.88 &#9733;</span></div>'
+
+            f'</div>'
+            f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
+            f'Three aspects far below the overall avg of <span style="font-weight:500;color:{NAVY}">'
+            f'{overall_avg_stars:.2f} &#9733;</span>.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    bot_row_l, bot_row_r = st.columns(2, gap="medium")
+
+    # ── Card 3: LDA Topics ───────────────────────────────────────────────────
+    with bot_row_l:
+        st.markdown(
+            f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
+            f'padding:1.25rem;border-top:3px solid {GREEN};">'
+
+            f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
+            f'letter-spacing:.6px;color:#607080;margin-bottom:12px">LDA topic modelling</div>'
+
+            f'<div style="display:flex;gap:8px;margin-bottom:14px">'
+
+            f'<div style="flex:1;background:#FCEBEB;border:0.5px solid #F7C1C1;border-radius:8px;'
+            f'padding:10px 12px;text-align:center">'
+            f'<div style="font-size:.7rem;font-weight:500;color:#A32D2D;text-transform:uppercase;'
+            f'letter-spacing:.4px;margin-bottom:4px">Critical topic</div>'
+            f'<div style="font-size:.82rem;font-weight:500;color:#A32D2D;line-height:1.3">'
+            f'Customer Support and Problems</div>'
+            f'<div style="font-size:1.25rem;font-weight:500;color:#A32D2D;margin-top:6px">2.22 &#9733;</div>'
+            f'<div style="font-size:.72rem;color:#A32D2D;margin-top:2px">575 reviews</div></div>'
+
+            f'<div style="flex:1;background:#EAF3DE;border:0.5px solid #C0DD97;border-radius:8px;'
+            f'padding:10px 12px;text-align:center">'
+            f'<div style="font-size:.7rem;font-weight:500;color:#3B6D11;text-transform:uppercase;'
+            f'letter-spacing:.4px;margin-bottom:4px">Best topic</div>'
+            f'<div style="font-size:.82rem;font-weight:500;color:#3B6D11;line-height:1.3">'
+            f'Item Quality and Delivery</div>'
+            f'<div style="font-size:1.25rem;font-weight:500;color:#3B6D11;margin-top:6px">4.90 &#9733;</div>'
+            f'<div style="font-size:.72rem;color:#3B6D11;margin-top:2px">1,378 reviews</div></div>'
+
+            f'</div>'
+            f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
+            f'5 topics discovered. T1 is the primary trust barrier.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Card 4: Temporal Trend ───────────────────────────────────────────────
+    with bot_row_r:
+        sent_min = weekly["mean_sentiment"].min()
+        sent_max = weekly["mean_sentiment"].max()
+        st.markdown(
+            f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
+            f'padding:1.25rem;border-top:3px solid {SKY};">'
+
+            f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
+            f'letter-spacing:.6px;color:#607080;margin-bottom:12px">Temporal trend</div>'
+
+            f'<div style="display:flex;gap:8px;margin-bottom:14px">'
+
+            f'<div style="flex:1;background:#F4F6F9;border-radius:8px;padding:10px 12px;text-align:center">'
+            f'<div style="font-size:.75rem;color:#607080;margin-bottom:4px">Sentiment range</div>'
+            f'<div style="font-size:1.25rem;font-weight:500;color:{NAVY}">{sent_min:.3f}</div>'
+            f'<div style="font-size:.75rem;color:#8FA0B0;margin:2px 0">to</div>'
+            f'<div style="font-size:1.25rem;font-weight:500;color:{NAVY}">{sent_max:.3f}</div>'
+            f'</div>'
+
+            f'<div style="flex:1.4;display:flex;flex-direction:column;gap:7px">'
+
+            f'<div style="background:#FCEBEB;border-radius:8px;padding:8px 12px">'
+            f'<div style="font-size:.72rem;color:#A32D2D;margin-bottom:2px">Lowest week</div>'
+            f'<div style="font-size:.87rem;font-weight:500;color:#A32D2D">{worst["week_label"]}</div>'
+            f'<div style="font-size:.72rem;color:#A32D2D">'
+            f'{worst["pct_negative"]:.1f}% negative - {int(worst["reviews"])} reviews</div></div>'
+
+            f'<div style="background:#F4F6F9;border-radius:8px;padding:8px 12px">'
+            f'<div style="font-size:.72rem;color:#607080;margin-bottom:2px">Overall trend</div>'
+            f'<div style="font-size:.87rem;font-weight:500;color:{NAVY}">Stable</div>'
+            f'</div>'
+
+            f'</div></div>'
+            f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
+            f'{len(weekly)} weeks analysed. No major sentiment spikes detected.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
