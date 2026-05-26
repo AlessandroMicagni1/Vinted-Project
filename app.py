@@ -53,7 +53,7 @@ ASPECTS = {
 TOPIC_REFERENCE = pd.DataFrame([
     {
         "topic":     "T0",
-        "label":     "App Usability and Search",
+        "label":     "Platform Trust and Buyer Protection",
         "top_words": "venditori, assistenza, servizio, clienti, tutela, acquirenti, problemi, mai, vende, senza",
         "reviews":   385,
         "avg_stars": 3.03,
@@ -80,7 +80,7 @@ TOPIC_REFERENCE = pd.DataFrame([
     },
     {
         "topic":     "T3",
-        "label":     "Positive General Experience",
+        "label":     "App Usability and Ease of Use",
         "top_words": "facile, vendere, utile, funziona, usare, comprare, spedizione, articoli, benissimo, ben",
         "reviews":   702,
         "avg_stars": 4.35,
@@ -530,7 +530,9 @@ with tab_topics:
         "distribution over vocabulary terms, making results transparent and interpretable. "
         "Assigning a dominant topic per review enables per-segment satisfaction comparison. "
         "<b>Setup:</b> Italian stopwords (NLTK) + custom Vinted terms removed; "
-        "vocabulary filtered (no_below=5, no_above=0.70); 5 topics trained over 15 passes."
+        "vocabulary filtered (no_below=5, no_above=0.70); 5 topics trained over 15 passes. "
+        "<b>Note on labels:</b> Topic labels are human interpretations of the top words returned by LDA - "
+        "the top words shown in each card are the ground truth."
     )
 
     # Topic cards using inline styles only
@@ -605,7 +607,8 @@ with tab_topics:
         TOPIC_REFERENCE["topic"] + " - " + TOPIC_REFERENCE["label"],
     )
     selected_code = selected_topic.split(" - ")[0]
-    samples = df[df["topic_ref"] == selected_code].sort_values(["score","compound"]).head(8)
+    topic_reviews = df[df["topic_ref"] == selected_code]
+    samples = topic_reviews.sample(min(8, len(topic_reviews)), random_state=42).sort_values("score", ascending=False)
     for _, row in samples.iterrows():
         sent_color = GREEN if row["sentiment"] == "positive" else (RED if row["sentiment"] == "negative" else GREY)
         st.markdown(
@@ -838,7 +841,7 @@ with tab_summary:
 
             f'</div>'
             f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
-            f'5 topics discovered. T1 is the primary trust barrier.</div>'
+            f'5 topics discovered. T1 (Customer Support) is the primary trust barrier.</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
