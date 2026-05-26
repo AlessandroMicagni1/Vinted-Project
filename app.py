@@ -6,23 +6,11 @@ import re
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
-try:
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-    VADER_AVAILABLE = True
-except Exception:
-    SentimentIntensityAnalyzer = None
-    VADER_AVAILABLE = False
-
-LDA_AVAILABLE = False
-try:
-    import nltk
-    from gensim import corpora
-    from gensim.models import LdaModel
-    from nltk.tokenize import RegexpTokenizer
-    LDA_AVAILABLE = True
-except Exception:
-    pass
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+from gensim import corpora
+from gensim.models import LdaModel
+from nltk.tokenize import RegexpTokenizer
 
 DEFAULT_CSV = Path(__file__).with_name("vinted_googleplay_clean.csv")
 
@@ -40,18 +28,6 @@ BG     = "#F4F6F9"
 COLORS_CYCLE = [BLUE, RED, GREEN, TEAL, PURPLE]
 N_TOPICS     = 5
 
-POS_WORDS = {
-    "ottimo","ottima","ottimi","ottime","buono","buona","perfetto","perfetta",
-    "facile","semplice","veloce","fantastico","fantastica","consiglio",
-    "soddisfatto","soddisfatta","super","top","adoro","benissimo","eccellente",
-}
-NEG_WORDS = {
-    "pessimo","pessima","male","truffa","falso","fake","problema","problemi",
-    "bug","lenta","lento","bloccato","bloccata","rimborso","reso",
-    "assistenza","scam","contraffatto","deluso","delusa","impossibile",
-    "vergogna","soldi","perso","perdere","orribile","schifo","inaccettabile",
-}
-
 ASPECTS = {
     "authenticity":  ["falso","truffa","fake","contraffatto","autentico","originale"],
     "refunds":       ["rimborso","reso","restituzione","restituire","rimborsato"],
@@ -62,8 +38,7 @@ ASPECTS = {
     "seller":        ["venditore","venditrice","acquirente","affidabile","seria"],
 }
 
-# ── LDA helpers ───────────────────────────────────────────────────────────────
-# Italian supplement stopwords for Vinted context
+# Italian stopwords supplement for Vinted context
 VINTED_EXTRA_SW = {
     "vinted","sono","era","stato","stata","stati","state",
     "per","non","che","con","del","della","degli","delle","nel","nella",
@@ -99,7 +74,6 @@ _LABEL_HINTS = [
 ]
 
 def _auto_label(words: list) -> str:
-    """Return a short readable label from LDA top words using hint matching."""
     word_set = set(words)
     for keywords, label in _LABEL_HINTS:
         if word_set & keywords:
@@ -107,57 +81,7 @@ def _auto_label(words: list) -> str:
     return " & ".join(w.title() for w in words[:2])
 
 
-# ── Fallback pre-computed topics (used when gensim is unavailable) ────────────
-TOPIC_REFERENCE = pd.DataFrame([
-    {
-        "topic":     "T0",
-        "label":     "Platform Trust and Buyer Protection",
-        "top_words": "venditori, assistenza, servizio, clienti, tutela, acquirenti, problemi, mai, vende, senza",
-        "reviews":   385,
-        "avg_stars": 3.03,
-        "color":     BLUE,
-        "keywords":  ["venditori","assistenza","servizio","clienti","tutela","acquirenti","problemi","mai","vende","senza"],
-    },
-    {
-        "topic":     "T1",
-        "label":     "Customer Support and Problems",
-        "top_words": "assistenza, account, pacco, acquirente, venditore, articolo, reso, bloccato, giorni, senza",
-        "reviews":   575,
-        "avg_stars": 2.22,
-        "color":     RED,
-        "keywords":  ["assistenza","account","pacco","acquirente","venditore","articolo","reso","bloccato","giorni","supporto"],
-    },
-    {
-        "topic":     "T2",
-        "label":     "Item Quality and Delivery",
-        "top_words": "perfetto, ottimo, veloce, venditore, descrizione, acquisto, affidabile, consiglio, soddisfatta, super",
-        "reviews":   1378,
-        "avg_stars": 4.90,
-        "color":     GREEN,
-        "keywords":  ["perfetto","perfetta","ottimo","ottima","veloce","descrizione","acquisto","affidabile","consiglio","soddisfatta"],
-    },
-    {
-        "topic":     "T3",
-        "label":     "App Usability and Ease of Use",
-        "top_words": "facile, vendere, utile, funziona, usare, comprare, spedizione, articoli, benissimo, ben",
-        "reviews":   702,
-        "avg_stars": 4.35,
-        "color":     TEAL,
-        "keywords":  ["facile","vendere","utile","funziona","usare","comprare","spedizione","articoli","benissimo","semplice"],
-    },
-    {
-        "topic":     "T4",
-        "label":     "Shipping and Returns",
-        "top_words": "ottima, esperienza, positiva, applicazione, fantastica, acquisti, vita, affari, cose, vendere",
-        "reviews":   871,
-        "avg_stars": 4.86,
-        "color":     PURPLE,
-        "keywords":  ["ottima","esperienza","positiva","applicazione","fantastica","acquisti","vita","affari","cose","vendere"],
-    },
-])
-
-
-# ── Page config ──────────────────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Vinted Trust Radar",
     page_icon="shopping_bags",
@@ -184,7 +108,7 @@ st.markdown(
 )
 
 
-# ── Helper: KPI card ──────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def kpi(label: str, value: str, note: str = "", accent: str = BLUE):
     st.markdown(
         f'<div style="background:#FFFFFF;border-radius:10px;padding:18px 20px;'
@@ -196,8 +120,6 @@ def kpi(label: str, value: str, note: str = "", accent: str = BLUE):
         unsafe_allow_html=True,
     )
 
-
-# ── Helper: section header ────────────────────────────────────────────────────
 def sec(title: str, subtitle: str = ""):
     sub_html = (f'<p style="margin:.3rem 0 0 0;color:#607080;font-size:.88rem;line-height:1.4">{subtitle}</p>'
                 if subtitle else "")
@@ -207,8 +129,6 @@ def sec(title: str, subtitle: str = ""):
         unsafe_allow_html=True,
     )
 
-
-# ── Helper: methodology note box ──────────────────────────────────────────────
 def method(text: str):
     st.markdown(
         f'<p style="background:#EEF4F8;border-left:4px solid {TEAL};border-radius:0 8px 8px 0;'
@@ -255,23 +175,6 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-class FallbackSentiment:
-    def polarity_scores(self, text: str):
-        tokens = re.findall(r"[a-zA-ZA-z]{3,}", str(text).lower())
-        if not tokens:
-            return {"compound": 0.0}
-        pos = sum(t in POS_WORDS for t in tokens)
-        neg = sum(t in NEG_WORDS for t in tokens)
-        compound = (pos - neg) / max(4, pos + neg + 1)
-        return {"compound": max(-1.0, min(1.0, float(compound)))}
-
-
-def get_analyzer():
-    if VADER_AVAILABLE and SentimentIntensityAnalyzer is not None:
-        return SentimentIntensityAnalyzer(), "VADER (lexicon-based baseline)"
-    return FallbackSentiment(), "Italian fallback lexicon"
-
-
 def classify(compound: float) -> str:
     if compound >= 0.05:  return "positive"
     if compound <= -0.05: return "negative"
@@ -284,12 +187,10 @@ def read_default_data():
 
 
 @st.cache_data(show_spinner="Computing sentiment scores...")
-def prepare(raw: pd.DataFrame):
+def prepare(raw: pd.DataFrame) -> pd.DataFrame:
     df = clean_data(raw)
-    analyzer, _ = get_analyzer()
-    df["compound"] = df["text"].apply(
-        lambda x: analyzer.polarity_scores(str(x))["compound"]
-    )
+    analyzer = SentimentIntensityAnalyzer()
+    df["compound"]  = df["text"].apply(lambda x: analyzer.polarity_scores(str(x))["compound"])
     df["sentiment"] = df["compound"].apply(classify)
     return df
 
@@ -313,22 +214,6 @@ def aspect_summary(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("avg_stars") if rows else pd.DataFrame()
 
 
-def assign_reference_topic(text: str, score: int) -> str:
-    """Keyword-based topic assignment used as fallback when gensim is unavailable."""
-    text_l = str(text).lower()
-    best_topic, best_hits = "T2", -1
-    for _, row in TOPIC_REFERENCE.iterrows():
-        hits = sum(1 for k in row["keywords"] if k in text_l)
-        if hits > best_hits:
-            best_hits = hits
-            best_topic = row["topic"]
-    if best_hits == 0:
-        if score <= 2:   return "T1"
-        if score >= 5:   return "T2"
-        if any(k in text_l for k in ["app","ricerca","bug","interfaccia"]): return "T0"
-    return best_topic
-
-
 def weekly_summary(df: pd.DataFrame) -> pd.DataFrame:
     temp = df.copy()
     temp["week"] = temp["at"].dt.to_period("W")
@@ -346,75 +231,68 @@ def weekly_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner="Running LDA topic modelling (first run may take ~30 s)...")
 def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
-    """Train LDA on df texts and assign a dominant topic to each review.
-    Returns (topic_df, df_with_topic_ref) or (None, df) if LDA is unavailable or fails."""
-    if not LDA_AVAILABLE:
-        return None, df
+    """Train LDA on df texts and assign a dominant topic to each review."""
+    # Download Italian stopwords if not already present
     try:
-        # Fetch Italian stopwords (download if missing)
-        try:
-            from nltk.corpus import stopwords as nltk_sw
-            italian_sw = set(nltk_sw.words("italian"))
-        except LookupError:
-            nltk.download("stopwords", quiet=True)
-            from nltk.corpus import stopwords as nltk_sw
-            italian_sw = set(nltk_sw.words("italian"))
+        from nltk.corpus import stopwords as nltk_sw
+        italian_sw = set(nltk_sw.words("italian"))
+    except LookupError:
+        nltk.download("stopwords", quiet=True)
+        from nltk.corpus import stopwords as nltk_sw
+        italian_sw = set(nltk_sw.words("italian"))
 
-        all_sw = italian_sw | VINTED_EXTRA_SW
-        tok = RegexpTokenizer(
-            r"[a-zA-ZàáâãäåæçèéêëìíîïòóôõöùúûüÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ]{3,}"
-        )
+    all_sw = italian_sw | VINTED_EXTRA_SW
+    tok = RegexpTokenizer(
+        r"[a-zA-ZàáâãäåæçèéêëìíîïòóôõöùúûüÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ]{3,}"
+    )
 
-        texts = [
-            [t for t in tok.tokenize(str(x).lower()) if t not in all_sw]
-            for x in df["text"]
-        ]
+    texts = [
+        [t for t in tok.tokenize(str(x).lower()) if t not in all_sw]
+        for x in df["text"]
+    ]
 
-        dictionary = corpora.Dictionary(texts)
-        dictionary.filter_extremes(no_below=5, no_above=0.70)
-        corpus = [dictionary.doc2bow(t) for t in texts]
+    dictionary = corpora.Dictionary(texts)
+    dictionary.filter_extremes(no_below=5, no_above=0.70)
+    corpus = [dictionary.doc2bow(t) for t in texts]
 
-        lda = LdaModel(
-            corpus=corpus,
-            id2word=dictionary,
-            num_topics=n_topics,
-            passes=15,
-            random_state=42,
-        )
+    lda = LdaModel(
+        corpus=corpus,
+        id2word=dictionary,
+        num_topics=n_topics,
+        passes=15,
+        random_state=42,
+    )
 
-        # Assign dominant topic per review
-        topic_ids = []
-        for bow in corpus:
-            if not bow:
-                topic_ids.append(0)
-            else:
-                dist_ = lda.get_document_topics(bow)
-                topic_ids.append(max(dist_, key=lambda x: x[1])[0] if dist_ else 0)
+    # Assign dominant topic per review
+    topic_ids = []
+    for bow in corpus:
+        if not bow:
+            topic_ids.append(0)
+        else:
+            dist_ = lda.get_document_topics(bow)
+            topic_ids.append(max(dist_, key=lambda x: x[1])[0] if dist_ else 0)
 
-        df_out = df.copy()
-        df_out["topic_id"]  = topic_ids
-        df_out["topic_ref"] = [f"T{t}" for t in topic_ids]
+    df_out = df.copy()
+    df_out["topic_id"]  = topic_ids
+    df_out["topic_ref"] = [f"T{t}" for t in topic_ids]
 
-        # Build topic summary DataFrame
-        rows = []
-        for t in range(n_topics):
-            top10 = lda.show_topic(t, topn=10)
-            words = [w for w, _ in top10]
-            sub   = df_out[df_out["topic_id"] == t]
-            rows.append({
-                "topic":     f"T{t}",
-                "label":     _auto_label(words),
-                "top_words": ", ".join(words),
-                "reviews":   len(sub),
-                "avg_stars": float(sub["score"].mean()) if len(sub) > 0 else 0.0,
-                "color":     COLORS_CYCLE[t % len(COLORS_CYCLE)],
-                "keywords":  words,
-            })
+    # Build topic summary DataFrame
+    rows = []
+    for t in range(n_topics):
+        top10 = lda.show_topic(t, topn=10)
+        words = [w for w, _ in top10]
+        sub   = df_out[df_out["topic_id"] == t]
+        rows.append({
+            "topic":     f"T{t}",
+            "label":     _auto_label(words),
+            "top_words": ", ".join(words),
+            "reviews":   len(sub),
+            "avg_stars": float(sub["score"].mean()) if len(sub) > 0 else 0.0,
+            "color":     COLORS_CYCLE[t % len(COLORS_CYCLE)],
+            "keywords":  words,
+        })
 
-        return pd.DataFrame(rows), df_out
-
-    except Exception:
-        return None, df
+    return pd.DataFrame(rows), df_out
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -427,17 +305,13 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload Google Play reviews CSV", type=["csv"])
     st.caption("Leave empty to use the bundled Vinted Italy dataset (cleaned, Apr-May 2026).")
     st.markdown("---")
-    _, analyzer_name = get_analyzer()
-    st.info(f"Sentiment engine: {analyzer_name}")
+    st.info("Sentiment engine: VADER (lexicon-based baseline)")
     st.caption(
         "VADER is a transparent, lexicon-based baseline. "
         "It was designed for English; on Italian text it serves as a "
         "cross-validated proxy, confirmed against Google Play star ratings."
     )
-    if LDA_AVAILABLE:
-        st.success("LDA engine: gensim (live computation)")
-    else:
-        st.warning("LDA engine: pre-computed fallback (install gensim + nltk for live LDA)")
+    st.success("LDA engine: gensim (live computation)")
     st.markdown("---")
     st.markdown(
         "**Project:** Web and Social Media Analytics - BADS 2026  \n"
@@ -452,18 +326,11 @@ except Exception as exc:
     st.error(f"Could not load the dataset: {exc}")
     st.stop()
 
-# Run live LDA; fall back to keyword-based assignment if unavailable
-_topic_df, df = run_lda(df)
-if _topic_df is not None:
-    topic_df = _topic_df
-    lda_live = True
-else:
-    topic_df = TOPIC_REFERENCE.copy()
-    df = df.copy()
-    df["topic_ref"] = df.apply(
-        lambda r: assign_reference_topic(r["text"], int(r["score"])), axis=1
-    )
-    lda_live = False
+try:
+    topic_df, df = run_lda(df)
+except Exception as exc:
+    st.error(f"LDA failed: {exc}")
+    st.stop()
 
 topic_lookup      = topic_df.set_index("topic")
 df["topic_label"] = df["topic_ref"].map(topic_lookup["label"].to_dict())
@@ -472,7 +339,6 @@ overall_avg_stars = df["score"].mean()
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hero banner
 # ═══════════════════════════════════════════════════════════════════════════════
-lda_badge = "Live LDA" if lda_live else "Pre-computed LDA"
 st.markdown(
     f'<div style="background:linear-gradient(135deg,{NAVY} 0%,#162540 100%);border-radius:12px;'
     f'padding:26px 30px;color:white;margin-bottom:1.4rem;border-left:6px solid {RED};'
@@ -487,7 +353,7 @@ st.markdown(
     f'<span style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;'
     f'padding:3px 12px;font-size:.78rem;color:#C8D2DC;margin-right:.4rem">{len(df):,} reviews</span>'
     f'<span style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;'
-    f'padding:3px 12px;font-size:.78rem;color:#C8D2DC">VADER + {lda_badge} + Temporal Analysis</span>'
+    f'padding:3px 12px;font-size:.78rem;color:#C8D2DC">VADER + Live LDA + Temporal Analysis</span>'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -679,15 +545,9 @@ with tab_topics:
         "Assigning a dominant topic per review enables per-segment satisfaction comparison. "
         "<b>Setup:</b> Italian stopwords (NLTK) + custom Vinted terms removed; "
         "vocabulary filtered (no_below=5, no_above=0.70); 5 topics trained over 15 passes. "
-        "<b>Note on labels:</b> Topic labels are human interpretations of the top words returned by LDA - "
+        "<b>Note on labels:</b> Topic labels are derived from the top words returned by LDA - "
         "the top words shown in each card are the ground truth."
     )
-
-    if not lda_live:
-        st.info(
-            "Install `gensim` and `nltk` to enable live LDA computation on the uploaded dataset. "
-            "Currently showing pre-computed reference results from the notebook."
-        )
 
     # Topic cards
     cols = st.columns(N_TOPICS, gap="medium")
@@ -885,7 +745,6 @@ with tab_summary:
     sec("Key findings across all three analyses",
         f"Google Play Italy - Apr-May 2026 - {len(df):,} reviews")
 
-    # Live values for all cards
     dist_pos = dist["positive"] / len(df) * 100
     dist_neu = dist["neutral"]  / len(df) * 100
     dist_neg = dist["negative"] / len(df) * 100
@@ -893,7 +752,6 @@ with tab_summary:
     weekly   = weekly_summary(df)
     worst    = weekly.loc[weekly["mean_sentiment"].idxmin()]
 
-    # Live LDA topic extremes
     lda_worst = topic_df.loc[topic_df["avg_stars"].idxmin()]
     lda_best  = topic_df.loc[topic_df["avg_stars"].idxmax()]
 
@@ -904,24 +762,18 @@ with tab_summary:
         st.markdown(
             f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
             f'padding:1.25rem;border-top:3px solid {PURPLE};">'
-
             f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
             f'letter-spacing:.6px;color:#607080;margin-bottom:12px">Sentiment (VADER)</div>'
-
             f'<div style="display:flex;gap:8px;margin-bottom:14px">'
-
             f'<div style="flex:1;background:#EAF3DE;border-radius:8px;padding:10px;text-align:center">'
             f'<div style="font-size:1.35rem;font-weight:500;color:#3B6D11">{dist_pos:.1f}%</div>'
             f'<div style="font-size:.75rem;color:#3B6D11;margin-top:2px">positive</div></div>'
-
             f'<div style="flex:1;background:#F4F6F9;border-radius:8px;padding:10px;text-align:center">'
             f'<div style="font-size:1.35rem;font-weight:500;color:{NAVY}">{dist_neu:.1f}%</div>'
             f'<div style="font-size:.75rem;color:#607080;margin-top:2px">neutral</div></div>'
-
             f'<div style="flex:1;background:#FCEBEB;border-radius:8px;padding:10px;text-align:center">'
             f'<div style="font-size:1.35rem;font-weight:500;color:#A32D2D">{dist_neg:.1f}%</div>'
             f'<div style="font-size:.75rem;color:#A32D2D;margin-top:2px">negative</div></div>'
-
             f'</div>'
             f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
             f'Mean compound score: <span style="font-weight:500;color:{NAVY}">{mean_cpd:.3f}</span> - mild positive baseline.</div>'
@@ -931,37 +783,20 @@ with tab_summary:
 
     # ── Card 2: Aspect-Based ─────────────────────────────────────────────────
     with top_row_r:
-        # Compute live bottom-3 aspects by avg stars
-        live_aspects = aspect_summary(df)
-        if not live_aspects.empty:
-            bottom3 = live_aspects.nsmallest(3, "avg_stars")[["aspect","avg_stars"]]
-        else:
-            bottom3 = pd.DataFrame([
-                {"aspect":"authenticity","avg_stars":1.56},
-                {"aspect":"refunds","avg_stars":1.83},
-                {"aspect":"support","avg_stars":1.88},
-            ])
-
-        rows_html = ""
-        for _, asp_row in bottom3.iterrows():
-            rows_html += (
-                f'<div style="display:flex;align-items:center;justify-content:space-between;'
-                f'background:#FCEBEB;border-radius:8px;padding:8px 12px">'
-                f'<span style="font-size:.87rem;font-weight:500;color:#A32D2D">{asp_row["aspect"].title()}</span>'
-                f'<span style="font-size:1.15rem;font-weight:500;color:#A32D2D">{asp_row["avg_stars"]:.2f} &#9733;</span></div>'
-            )
-
+        bottom3 = aspects.nsmallest(3, "avg_stars")[["aspect","avg_stars"]] if not aspects.empty else pd.DataFrame()
+        rows_html = "".join(
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'background:#FCEBEB;border-radius:8px;padding:8px 12px">'
+            f'<span style="font-size:.87rem;font-weight:500;color:#A32D2D">{r["aspect"].title()}</span>'
+            f'<span style="font-size:1.15rem;font-weight:500;color:#A32D2D">{r["avg_stars"]:.2f} &#9733;</span></div>'
+            for _, r in bottom3.iterrows()
+        )
         st.markdown(
             f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
             f'padding:1.25rem;border-top:3px solid {BLUE};">'
-
             f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
             f'letter-spacing:.6px;color:#607080;margin-bottom:12px">Aspect-based</div>'
-
-            f'<div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px">'
-            f'{rows_html}'
-            f'</div>'
-
+            f'<div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px">{rows_html}</div>'
             f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
             f'Three aspects far below the overall avg of <span style="font-weight:500;color:{NAVY}">'
             f'{overall_avg_stars:.2f} &#9733;</span>.</div>'
@@ -972,36 +807,28 @@ with tab_summary:
     st.markdown("<br>", unsafe_allow_html=True)
     bot_row_l, bot_row_r = st.columns(2, gap="medium")
 
-    # ── Card 3: LDA Topics (live) ────────────────────────────────────────────
+    # ── Card 3: LDA Topics ───────────────────────────────────────────────────
     with bot_row_l:
-        lda_source = "Live LDA" if lda_live else "Pre-computed"
         st.markdown(
             f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
             f'padding:1.25rem;border-top:3px solid {GREEN};">'
-
             f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
-            f'letter-spacing:.6px;color:#607080;margin-bottom:12px">LDA topic modelling ({lda_source})</div>'
-
+            f'letter-spacing:.6px;color:#607080;margin-bottom:12px">LDA topic modelling</div>'
             f'<div style="display:flex;gap:8px;margin-bottom:14px">'
-
             f'<div style="flex:1;background:#FCEBEB;border:0.5px solid #F7C1C1;border-radius:8px;'
             f'padding:10px 12px;text-align:center">'
             f'<div style="font-size:.7rem;font-weight:500;color:#A32D2D;text-transform:uppercase;'
             f'letter-spacing:.4px;margin-bottom:4px">Critical topic</div>'
-            f'<div style="font-size:.82rem;font-weight:500;color:#A32D2D;line-height:1.3">'
-            f'{lda_worst["label"]}</div>'
+            f'<div style="font-size:.82rem;font-weight:500;color:#A32D2D;line-height:1.3">{lda_worst["label"]}</div>'
             f'<div style="font-size:1.25rem;font-weight:500;color:#A32D2D;margin-top:6px">{lda_worst["avg_stars"]:.2f} &#9733;</div>'
             f'<div style="font-size:.72rem;color:#A32D2D;margin-top:2px">{int(lda_worst["reviews"]):,} reviews</div></div>'
-
             f'<div style="flex:1;background:#EAF3DE;border:0.5px solid #C0DD97;border-radius:8px;'
             f'padding:10px 12px;text-align:center">'
             f'<div style="font-size:.7rem;font-weight:500;color:#3B6D11;text-transform:uppercase;'
             f'letter-spacing:.4px;margin-bottom:4px">Best topic</div>'
-            f'<div style="font-size:.82rem;font-weight:500;color:#3B6D11;line-height:1.3">'
-            f'{lda_best["label"]}</div>'
+            f'<div style="font-size:.82rem;font-weight:500;color:#3B6D11;line-height:1.3">{lda_best["label"]}</div>'
             f'<div style="font-size:1.25rem;font-weight:500;color:#3B6D11;margin-top:6px">{lda_best["avg_stars"]:.2f} &#9733;</div>'
             f'<div style="font-size:.72rem;color:#3B6D11;margin-top:2px">{int(lda_best["reviews"]):,} reviews</div></div>'
-
             f'</div>'
             f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
             f'{N_TOPICS} topics discovered. {lda_worst["topic"]} ({lda_worst["label"]}) is the primary trust barrier.</div>'
@@ -1016,32 +843,25 @@ with tab_summary:
         st.markdown(
             f'<div style="background:#FFFFFF;border:0.5px solid #DDE5EE;border-radius:12px;'
             f'padding:1.25rem;border-top:3px solid {SKY};">'
-
             f'<div style="font-size:.75rem;font-weight:600;text-transform:uppercase;'
             f'letter-spacing:.6px;color:#607080;margin-bottom:12px">Temporal trend</div>'
-
             f'<div style="display:flex;gap:8px;margin-bottom:14px">'
-
             f'<div style="flex:1;background:#F4F6F9;border-radius:8px;padding:10px 12px;text-align:center">'
             f'<div style="font-size:.75rem;color:#607080;margin-bottom:4px">Sentiment range</div>'
             f'<div style="font-size:1.25rem;font-weight:500;color:{NAVY}">{sent_min:.3f}</div>'
             f'<div style="font-size:.75rem;color:#8FA0B0;margin:2px 0">to</div>'
             f'<div style="font-size:1.25rem;font-weight:500;color:{NAVY}">{sent_max:.3f}</div>'
             f'</div>'
-
             f'<div style="flex:1.4;display:flex;flex-direction:column;gap:7px">'
-
             f'<div style="background:#FCEBEB;border-radius:8px;padding:8px 12px">'
             f'<div style="font-size:.72rem;color:#A32D2D;margin-bottom:2px">Lowest week</div>'
             f'<div style="font-size:.87rem;font-weight:500;color:#A32D2D">{worst["week_label"]}</div>'
             f'<div style="font-size:.72rem;color:#A32D2D">'
             f'{worst["pct_negative"]:.1f}% negative - {int(worst["reviews"])} reviews</div></div>'
-
             f'<div style="background:#F4F6F9;border-radius:8px;padding:8px 12px">'
             f'<div style="font-size:.72rem;color:#607080;margin-bottom:2px">Overall trend</div>'
             f'<div style="font-size:.87rem;font-weight:500;color:{NAVY}">Stable</div>'
             f'</div>'
-
             f'</div></div>'
             f'<div style="font-size:.85rem;color:#607080;line-height:1.5">'
             f'{len(weekly)} weeks analysed. No major sentiment spikes detected.</div>'
