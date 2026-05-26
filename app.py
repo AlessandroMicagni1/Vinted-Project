@@ -275,7 +275,6 @@ def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
         random_state=42,
     )
 
-    # Assign dominant topic per review
     topic_ids = []
     for bow in corpus:
         if not bow:
@@ -288,7 +287,6 @@ def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
     df_out["topic_id"]  = topic_ids
     df_out["topic_ref"] = [f"T{t}" for t in topic_ids]
 
-    # Build topic summary DataFrame
     rows = []
     for t in range(n_topics):
         top10 = lda.show_topic(t, topn=10)
