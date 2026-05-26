@@ -273,6 +273,7 @@ def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
         num_topics=n_topics,
         passes=15,
         random_state=42,
+        alpha="auto",
     )
 
     topic_ids = []
