@@ -7,6 +7,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+from nltk.corpus import stopwords as nltk_stopwords
+from nltk.tokenize import RegexpTokenizer
 from gensim import corpora
 from gensim.models import LdaModel
 
@@ -36,50 +39,16 @@ ASPECTS = {
     "seller":        ["venditore","venditrice","acquirente","affidabile","seria"],
 }
 
-# Italian stopwords (embedded — no nltk download needed)
-ITALIAN_STOPWORDS = {
-    # articles & prepositions
-    "il","lo","la","i","gli","le","un","uno","una",
-    "di","del","dello","dei","degli","della","delle",
-    "a","al","allo","ai","agli","alla","alle",
-    "da","dal","dallo","dai","dagli","dalla","dalle",
-    "in","nel","nello","nei","negli","nella","nelle",
-    "su","sul","sullo","sui","sugli","sulla","sulle",
-    "con","col","coi","per","tra","fra",
-    # pronouns
-    "io","tu","lui","lei","noi","voi","loro",
-    "mi","ti","ci","vi","si","ne","lo","la","li","le","gli",
-    "me","te","se","ce","ve",
-    "mio","mia","miei","mie","tuo","tua","tuoi","tue",
-    "suo","sua","suoi","sue","nostro","nostra","nostri","nostre",
-    "vostro","vostra","vostri","vostre",
-    "questo","questa","questi","queste","quello","quella","quelli","quelle",
-    "che","chi","cui","quale","quali","quanto","quanta","quanti","quante",
-    # conjunctions / adverbs
-    "e","ed","o","ma","se","non","anche","solo","già","ancora","sempre",
-    "mai","più","molto","molta","molti","molte","troppo","troppa",
-    "poco","poca","ogni","tutto","tutti","tutta","tutte",
-    "poi","però","perché","perche","quando","come","dove","dov",
-    "cosa","fatto","fare","ora","qui","qua","lì","là","così","ecco",
-    "quindi","allora","davvero","proprio","circa","quasi","appena",
-    "subito","prima","dopo","vero","grande","grandi","stesso","stessa",
-    "anno","anni","giorno","giorni","mese","mesi","volta","volte",
-    "tempo","modo","tipo","bene","male","via","fino","oltre","invece",
-    "magari","certo","cosi","adesso","oggi","ieri","domani",
-    # auxiliary verbs
-    "ho","hai","ha","abbiamo","avete","hanno",
-    "avevo","avevi","aveva","avevamo","avevate","avevano",
-    "avrò","avrai","avrà","avremo","avrete","avranno",
-    "avrei","avresti","avrebbe","avremmo","avreste","avrebbero",
-    "sono","sei","siamo","siete",
-    "ero","eri","era","eravamo","eravate","erano",
-    "sarò","sarai","sarà","saremo","sarete","saranno",
-    "sarei","saresti","sarebbe","saremmo","sareste","sarebbero",
-    "sia","siano","fosse","fossero","fossi","stato","stata","stati","state",
-    "avere","essere","fare","dire","andare","venire","sapere",
-    "volere","potere","dovere","stare",
-    # Vinted-specific noise
-    "vinted","app","applicazione","ciao","grazie","purtroppo",
+# Exact custom stopwords from the notebook (Cell 12)
+NOTEBOOK_EXTRA_SW = {
+    "app","vinted","però","perché","quando","tutto","bene","molto",
+    "anche","fare","più","così","sempre","già","poi","solo","ogni",
+    "come","dopo","prima","essere","avere","questo","questa","questi",
+    "delle","della","dello","degli","una","uno","gli","alla","alle",
+    "agli","sul","sulla","sulle","nel","nella","nelle","negli",
+    "con","per","che","non","mi","ti","ci","vi","si","ho","ha",
+    "hai","abbiamo","hanno","era","sono","stato","stata","stati",
+    "trovo","trovata","trovato","grazie",
 }
 
 # Priority-ordered (keyword_set, label) pairs for auto-labelling LDA topics
@@ -264,11 +233,22 @@ def weekly_summary(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner="Running LDA topic modelling (first run may take ~30 s)...")
 def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
     """Train gensim LDA on df texts and assign a dominant topic to each review."""
-    _tok = re.compile(r"[a-zA-ZàáâãäåæçèéêëìíîïòóôõöùúûüÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ]{3,}")
-    texts = [
-        [t for t in _tok.findall(str(x).lower()) if t not in ITALIAN_STOPWORDS]
-        for x in df["text"]
-    ]
+    # Download NLTK stopwords if needed (pure Python, no compilation)
+    try:
+        it_stops = set(nltk_stopwords.words("italian"))
+    except LookupError:
+        nltk.download("stopwords", quiet=True)
+        it_stops = set(nltk_stopwords.words("italian"))
+    it_stops.update(NOTEBOOK_EXTRA_SW)
+
+    # Exact tokeniser pattern from notebook: RegexpTokenizer(r'[a-zA-ZÀ-ÿ]{3,}')
+    tokenizer = RegexpTokenizer(r"[a-zA-ZÀ-ÿ]{3,}")
+
+    def preprocess(text):
+        tokens = tokenizer.tokenize(str(text).lower())
+        return [t for t in tokens if t not in it_stops]
+
+    texts = df["text"].apply(preprocess).tolist()
 
     dictionary = corpora.Dictionary(texts)
     dictionary.filter_extremes(no_below=5, no_above=0.70)
