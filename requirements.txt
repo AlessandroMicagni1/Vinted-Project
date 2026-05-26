@@ -1,0 +1,4 @@
+streamlit>=1.57
+pandas>=2.0
+matplotlib>=3.7
+vaderSentiment>=3.3.2
