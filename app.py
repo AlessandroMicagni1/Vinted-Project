@@ -38,23 +38,50 @@ ASPECTS = {
     "seller":        ["venditore","venditrice","acquirente","affidabile","seria"],
 }
 
-# Italian stopwords supplement for Vinted context
-VINTED_EXTRA_SW = {
-    "vinted","sono","era","stato","stata","stati","state",
-    "per","non","che","con","del","della","degli","delle","nel","nella",
-    "nei","nelle","dal","dalla","dai","dagli","dalle","sul","sulla","sui",
-    "sugli","sulle","uno","una","gli","poi","però","perché","quando","come",
-    "cosa","fatto","fare","tutto","tutte","tutti","tutta","ogni","anche","solo",
-    "già","ancora","sempre","mai","più","molto","molta","troppo","troppa",
+# Italian stopwords (embedded — no nltk download needed)
+ITALIAN_STOPWORDS = {
+    # articles & prepositions
+    "il","lo","la","i","gli","le","un","uno","una",
+    "di","del","dello","dei","degli","della","delle",
+    "a","al","allo","ai","agli","alla","alle",
+    "da","dal","dallo","dai","dagli","dalla","dalle",
+    "in","nel","nello","nei","negli","nella","nelle",
+    "su","sul","sullo","sui","sugli","sulla","sulle",
+    "con","col","coi","per","tra","fra",
+    # pronouns
+    "io","tu","lui","lei","noi","voi","loro",
+    "mi","ti","ci","vi","si","ne","lo","la","li","le","gli",
+    "me","te","se","ce","ve",
+    "mio","mia","miei","mie","tuo","tua","tuoi","tue",
+    "suo","sua","suoi","sue","nostro","nostra","nostri","nostre",
+    "vostro","vostra","vostri","vostre",
     "questo","questa","questi","queste","quello","quella","quelli","quelle",
-    "bene","male","ora","qui","qua","così","ecco","quindi","allora",
-    "davvero","proprio","circa","quasi","appena","subito","prima","dopo",
-    "vero","grande","grandi","stesso","stessa","anno","anni","giorno",
-    "giorni","mese","mesi","volta","volte","tempo","modo","tipo",
-    "avere","essere","fare","dire","andare","venire","sapere","volere",
-    "potere","dovere","ha","ho","hai","hanno","abbiamo","avete",
-    "aveva","avevo","avevi","avevamo","avevate","avevano",
-    "app","applicazione",
+    "che","chi","cui","quale","quali","quanto","quanta","quanti","quante",
+    # conjunctions / adverbs
+    "e","ed","o","ma","se","non","anche","solo","già","ancora","sempre",
+    "mai","più","molto","molta","molti","molte","troppo","troppa",
+    "poco","poca","ogni","tutto","tutti","tutta","tutte",
+    "poi","però","perché","perche","quando","come","dove","dov",
+    "cosa","fatto","fare","ora","qui","qua","lì","là","così","ecco",
+    "quindi","allora","davvero","proprio","circa","quasi","appena",
+    "subito","prima","dopo","vero","grande","grandi","stesso","stessa",
+    "anno","anni","giorno","giorni","mese","mesi","volta","volte",
+    "tempo","modo","tipo","bene","male","via","fino","oltre","invece",
+    "magari","certo","cosi","adesso","oggi","ieri","domani",
+    # auxiliary verbs
+    "ho","hai","ha","abbiamo","avete","hanno",
+    "avevo","avevi","aveva","avevamo","avevate","avevano",
+    "avrò","avrai","avrà","avremo","avrete","avranno",
+    "avrei","avresti","avrebbe","avremmo","avreste","avrebbero",
+    "sono","sei","siamo","siete",
+    "ero","eri","era","eravamo","eravate","erano",
+    "sarò","sarai","sarà","saremo","sarete","saranno",
+    "sarei","saresti","sarebbe","saremmo","sareste","sarebbero",
+    "sia","siano","fosse","fossero","fossi","stato","stata","stati","state",
+    "avere","essere","fare","dire","andare","venire","sapere",
+    "volere","potere","dovere","stare",
+    # Vinted-specific noise
+    "vinted","app","applicazione","ciao","grazie","purtroppo",
 }
 
 # Priority-ordered (keyword_set, label) pairs for auto-labelling LDA topics
@@ -231,8 +258,7 @@ def weekly_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner="Running LDA topic modelling (first run may take ~30 s)...")
 def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
-    """Train LDA on df texts and assign a dominant topic to each review."""
-    # Download Italian stopwords if not already present
+    """Train gensim LDA on df texts and assign a dominant topic to each review."""
     try:
         from nltk.corpus import stopwords as nltk_sw
         italian_sw = set(nltk_sw.words("italian"))
@@ -241,8 +267,8 @@ def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
         from nltk.corpus import stopwords as nltk_sw
         italian_sw = set(nltk_sw.words("italian"))
 
-    all_sw = italian_sw | VINTED_EXTRA_SW
-    tok = RegexpTokenizer(
+    all_sw = italian_sw | ITALIAN_STOPWORDS
+    tok    = RegexpTokenizer(
         r"[a-zA-ZàáâãäåæçèéêëìíîïòóôõöùúûüÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ]{3,}"
     )
 
