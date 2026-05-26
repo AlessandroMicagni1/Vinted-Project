@@ -538,15 +538,15 @@ with tab_topics:
 
     method(
         "<b>What it does:</b> LDA (Latent Dirichlet Allocation) is an unsupervised probabilistic model "
-        "that discovers hidden thematic structure in a text corpus — without requiring predefined categories. "
+        "that discovers hidden thematic structure in a text corpus, without requiring predefined categories. "
         "<b>How it works:</b> Each document is modelled as a mixture of topics, and each topic as a mixture "
         "of words. Applied to the loaded reviews with 5 topics, 15 passes, Italian stopword removal, and a "
         f"{lda_vocab_size:,}-term vocabulary. "
-        "<b>Tool:</b> <code>gensim LdaModel</code> (Python) — "
-        "beyond keyword matching, LDA reveals trust barriers that may not have been anticipated. "
+        "<b>Tool:</b> <code>gensim LdaModel</code> (Python). "
+        "Beyond keyword matching, LDA reveals trust barriers that may not have been anticipated. "
         "Each topic is a probability distribution over words, making results transparent and explainable. "
-        "<b>Note on labels:</b> Human-readable labels are derived from the top words — "
-        "the top words shown in each card are the ground truth."
+        "<b>Note on labels:</b> Human-readable labels are derived from the top words. "
+        "The top words shown in each card are the ground truth."
     )
 
     # Topic cards
