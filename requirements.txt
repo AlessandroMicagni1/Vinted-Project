@@ -2,3 +2,5 @@ streamlit>=1.57
 pandas>=2.0
 plotly>=5.18
 vaderSentiment>=3.3.2
+gensim>=4.0
+nltk>=3.8
