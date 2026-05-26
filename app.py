@@ -99,10 +99,17 @@ _LABEL_HINTS = [
 ]
 
 def _auto_label(words: list) -> str:
+    """Pick the label whose keyword set has the most matches in the top words.
+    Ties broken by hint order (earlier = higher priority)."""
     word_set = set(words)
+    best_label, best_count = None, 0
     for keywords, label in _LABEL_HINTS:
-        if word_set & keywords:
-            return label
+        count = len(word_set & keywords)
+        if count > best_count:
+            best_count = count
+            best_label = label
+    if best_label:
+        return best_label
     return " & ".join(w.title() for w in words[:2])
 
 
@@ -303,7 +310,7 @@ def run_lda(df: pd.DataFrame, n_topics: int = N_TOPICS):
             "keywords":  words,
         })
 
-    return pd.DataFrame(rows), df_out
+    return pd.DataFrame(rows), df_out, len(dictionary)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -338,7 +345,7 @@ except Exception as exc:
     st.stop()
 
 try:
-    topic_df, df = run_lda(df)
+    topic_df, df, lda_vocab_size = run_lda(df)
 except Exception as exc:
     st.error(f"LDA failed: {exc}")
     st.stop()
@@ -547,16 +554,18 @@ with tab_sent:
 # ─── TAB 3: Topic Clusters ───────────────────────────────────────────────────
 with tab_topics:
     sec("3. LDA Topic Modelling",
-        "Unsupervised discovery of 5 latent themes using Gensim LDA (15 passes, random_state=42).")
+        "Unsupervised discovery of 5 latent themes using gensim LdaModel (15 passes, random_state=42).")
 
     method(
-        "<b>Why LDA:</b> Latent Dirichlet Allocation discovers hidden thematic structure "
-        "from the data itself - no predefined labels are needed. Each topic is a probability "
-        "distribution over vocabulary terms, making results transparent and interpretable. "
-        "Assigning a dominant topic per review enables per-segment satisfaction comparison. "
-        "<b>Setup:</b> Italian stopwords (NLTK) + custom Vinted terms removed; "
-        "vocabulary filtered (no_below=5, no_above=0.70); 5 topics trained over 15 passes. "
-        "<b>Note on labels:</b> Topic labels are derived from the top words returned by LDA - "
+        "<b>What it does:</b> LDA (Latent Dirichlet Allocation) is an unsupervised probabilistic model "
+        "that discovers hidden thematic structure in a text corpus — without requiring predefined categories. "
+        "<b>How it works:</b> Each document is modelled as a mixture of topics, and each topic as a mixture "
+        "of words. Applied to the loaded reviews with 5 topics, 15 passes, Italian stopword removal, and a "
+        f"{lda_vocab_size:,}-term vocabulary. "
+        "<b>Tool:</b> <code>gensim LdaModel</code> (Python) — "
+        "beyond keyword matching, LDA reveals trust barriers that may not have been anticipated. "
+        "Each topic is a probability distribution over words, making results transparent and explainable. "
+        "<b>Note on labels:</b> Human-readable labels are derived from the top words — "
         "the top words shown in each card are the ground truth."
     )
 
