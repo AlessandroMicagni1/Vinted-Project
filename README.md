@@ -26,6 +26,3 @@ Open the URL printed by Streamlit, usually `http://localhost:8501`.
 - Temporal Trend: weekly sentiment and % negative reviews
 - Business Actions: recommended actions based on trust barriers
 
-## Why there is no gensim
-
-The original notebook used `gensim LdaModel`. This demo version reuses the LDA topic labels, top words, and summary results from the notebook/deck so the prototype runs reliably without compiling native dependencies during the exam.
